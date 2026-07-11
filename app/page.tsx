@@ -33,7 +33,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { IdeaSignal, ReplyOpportunity } from "../lib/x-growth";
 
 type View = "Overview" | "Discover" | "Content" | "Schedule" | "Analytics" | "Settings";
@@ -160,6 +160,44 @@ function ReplyComposer({ opportunity, live, onClose, csrf, aiRepliesApproved, on
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="composer reply-composer" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Write reply"><header><div><span className="eyebrow">REPLY TO {opportunity.handle.toUpperCase()}</span><h2>Join the conversation</h2></div><button className="icon-btn" onClick={onClose}><X size={18}/></button></header><div className="quoted-post"><strong>{opportunity.name} <small>{opportunity.handle}</small></strong><p>{opportunity.post}</p><em>{opportunity.reason}</em></div><label className="reply-label">YOUR REPLY<textarea value={text} onChange={(event)=>{setText(event.target.value);if(!event.target.value)setGenerated(false)}} maxLength={280} placeholder="Write a specific, useful reply…"/></label>{aiRepliesApproved&&<button className="outline-btn ai-reply-btn" onClick={suggest} disabled={sending}><Sparkles size={14}/> Suggest with AI</button>}{generated&&<div className="generated-notice"><Sparkles size={13}/> AI-generated suggestion — edit and review before publishing.</div>}<div className="composer-meta"><span>{text.length}/280</span><span>{live?"Publishes only after your confirmation":"Demo mode · opens the post on X"}</span></div><div className="feedback-actions"><span>Was this opportunity relevant?</span><button onClick={()=>onFeedback(1)}>👍</button><button onClick={()=>onFeedback(-1)}>👎</button></div>{result==="error"&&<div className="inline-error">The action failed. Check approval, permissions and connection status.</div>}<footer><button className="ghost-btn" onClick={onClose}>Cancel</button><button className="primary-btn" onClick={send} disabled={sending||!text.trim()}>{result==="sent"?<><Check size={15}/> Sent</>:sending?"Sending…":live?<><Send size={15}/> Publish reply</>:<><ArrowUpRight size={15}/> Open on X</>}</button></footer></section></div>;
 }
 
+const X_DEV_CONSOLE = "https://console.x.com/";
+const X_OAUTH_DOCS = "https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code";
+
+function CopyField({ label, hint, value }: { label: string; hint?: string; value: string }) {
+  return (
+    <label className="callback-field">
+      {label}
+      <div className="copy-input">
+        <input readOnly value={value} />
+        <button type="button" onClick={() => void navigator.clipboard.writeText(value)} aria-label={`Copy ${label}`}><Link2 size={15}/></button>
+      </div>
+      {hint && <small className="field-hint">{hint}</small>}
+    </label>
+  );
+}
+
+function EnvVarRow({ name, required, description, example }: { name: string; required?: boolean; description: string; example?: string }) {
+  return (
+    <div className="env-var-row">
+      <div className="env-var-head">
+        <code>{name}</code>
+        <b className={required ? "" : "optional"}>{required ? "Required" : "Optional"}</b>
+      </div>
+      <p>{description}</p>
+      {example && <div className="copy-code"><code>{example}</code></div>}
+    </div>
+  );
+}
+
+function GuideStep({ n, title, children }: { n: number; title: string; children: ReactNode }) {
+  return (
+    <section className="settings-guide-block">
+      <header><span className="eyebrow">STEP {n}</span><h3>{title}</h3></header>
+      {children}
+    </section>
+  );
+}
+
 const apiSetupSteps = [
   { label: "Fork and configure", icon: Github },
   { label: "Create an X app", icon: Code2 },
@@ -186,10 +224,10 @@ function SetupGuide({ onClose, onGoToSettings }: { onClose: () => void; onGoToSe
       </aside>
       <div className="setup-content">
         <header><span className="step-count">{step+1} / {apiSetupSteps.length}</span><button className="icon-btn" onClick={onClose} aria-label="Close setup"><X size={18}/></button></header>
-        {step === 0 && <div className="setup-step"><div className="step-icon"><Github size={23}/></div><span className="eyebrow">SELF-HOSTED FIRST</span><h1>Fork OpenX Growth</h1><p className="lead">Each installation owns its code, database, X usage and secrets. No shared OpenX service receives your credentials. Review the <a href="/privacy" target="_blank">privacy notice</a> before connecting an account.</p><div className="instruction-list"><div><b>1</b><p><strong>Fork the GitHub repository</strong><span>Keep your fork private until its environment variables are configured.</span></p></div><div><b>2</b><p><strong>Copy .env.example to .env.local</strong><span>Generate fresh SESSION_SECRET, APP_ACCESS_TOKEN and CRON_SECRET values.</span></p></div><div><b>3</b><p><strong>Never commit .env files</strong><span>The included gitignore and secret-scanning workflow help prevent accidental exposure.</span></p></div></div><a className="external-action" href="https://github.com/dg996/OpenX-Growth/fork" target="_blank" rel="noreferrer">Fork on GitHub <ArrowUpRight size={15}/></a></div>}
-        {step === 1 && <div className="setup-step"><div className="step-icon"><Code2 size={23}/></div><span className="eyebrow">APP CREATION</span><h1>Create a dedicated X app</h1><p className="lead">Create a separate app for OpenX Growth so its permissions and costs stay isolated.</p><div className="instruction-list"><div><b>1</b><p><strong>Click “New App”</strong><span>Name it “OpenX Growth” or choose any recognizable name.</span></p></div><div><b>2</b><p><strong>Select Single Page App</strong><span>This is a public OAuth client and works securely with PKCE without importing a Client Secret.</span></p></div><div><b>3</b><p><strong>Open User authentication settings</strong><span>Enable OAuth 2.0 and keep the generated Client ID.</span></p></div></div><div className="security-note"><Settings size={16}/><p><strong>Use a dedicated app.</strong><span>It makes revoking access and tracking costs much easier.</span></p></div></div>}
-        {step === 2 && <div className="setup-step"><div className="step-icon"><Settings size={23}/></div><span className="eyebrow">ENVIRONMENT</span><h1>Configure the deployment</h1><p className="lead">Add the X Client ID and generated secrets to your hosting provider. OpenX never reads them from the browser.</p><div className="config-grid"><label>X application<strong>X_CLIENT_ID</strong></label><label>Encryption key<strong>SESSION_SECRET</strong></label><label>Private access<strong>APP_ACCESS_TOKEN</strong></label><label>Scheduler protection<strong>CRON_SECRET</strong></label><label className="wide">Callback / Redirect URI<div className="copy-code"><code>{callback}</code><button onClick={()=>navigator.clipboard.writeText(callback)} aria-label="Copy callback URL"><Link2 size={14}/></button></div><small>Register this exact value in X.</small></label></div><div className="scope-box"><strong>Scopes requested</strong><div><code>tweet.read</code><code>tweet.write</code><code>users.read</code><code>offline.access</code></div></div></div>}
-        {step === 3 && <div className="setup-step"><div className="step-icon"><Link2 size={23}/></div><span className="eyebrow">AUTHORIZE</span><h1>Connect the account on X</h1><p className="lead">Restart the deployment, open Settings and select Continue with X. Review every requested permission on X before approving.</p><div className="security-note"><Zap size={16}/><p><strong>Tokens are encrypted with AES-GCM.</strong><span>Disconnecting deletes the encrypted server-side token. Publishing and replies always require an explicit user action or protected scheduler.</span></p></div><button className="primary-btn finish-setup" onClick={finish}>Open Settings <ArrowUpRight size={15}/></button></div>}
+        {step === 0 && <div className="setup-step"><div className="step-icon"><Github size={23}/></div><span className="eyebrow">SELF-HOSTED FIRST</span><h1>Fork and install</h1><p className="lead">Each installation owns its code, database, X usage and secrets. No shared OpenX service receives your credentials.</p><div className="instruction-list"><div><b>1</b><p><strong>Fork the repository</strong><span>Keep your fork private until environment variables are configured.</span></p></div><div><b>2</b><p><strong>Install dependencies</strong><span><code>npm ci</code> then copy <code>.env.example</code> to <code>.env.local</code> (local) or set secrets on your host.</span></p></div><div><b>3</b><p><strong>Generate secrets</strong><span><code>openssl rand -base64 48</code> for SESSION_SECRET. APP_ACCESS_TOKEN is optional for demo mode.</span></p></div><div><b>4</b><p><strong>Migrate the database</strong><span><code>npm run db:migrate:local</code> for dev, <code>db:migrate:remote</code> after creating D1 in production.</span></p></div></div><a className="external-action" href="https://github.com/dg996/OpenX-Growth/fork" target="_blank" rel="noreferrer">Fork on GitHub <ArrowUpRight size={15}/></a></div>}
+        {step === 1 && <div className="setup-step"><div className="step-icon"><Code2 size={23}/></div><span className="eyebrow">X DEVELOPER CONSOLE</span><h1>Create your X application</h1><p className="lead">You never paste an X access token manually. OpenX uses OAuth 2.0 + PKCE and stores encrypted tokens after you approve in the browser.</p><div className="instruction-list"><div><b>1</b><p><strong>Open the X Developer Console</strong><span>Create a project and a dedicated app named e.g. “OpenX Growth”.</span></p></div><div><b>2</b><p><strong>Enable OAuth 2.0</strong><span>Under User authentication settings, turn on OAuth 2.0.</span></p></div><div><b>3</b><p><strong>App type: Web App / Single Page App</strong><span>Public clients use PKCE and usually do not need X_CLIENT_SECRET.</span></p></div><div><b>4</b><p><strong>Set permissions to Read and Write</strong><span>Required for sync, publishing and replies.</span></p></div><div><b>5</b><p><strong>Copy the OAuth 2.0 Client ID</strong><span>Paste it into <code>X_CLIENT_ID</code> in your server environment — never in the browser.</span></p></div></div><a className="external-action" href={X_DEV_CONSOLE} target="_blank" rel="noreferrer">Open X Developer Console <ArrowUpRight size={15}/></a><div className="security-note"><Settings size={16}/><p><strong>Dedicated app recommended.</strong><span>Isolates permissions, billing and revocation from your other X integrations.</span></p></div></div>}
+        {step === 2 && <div className="setup-step"><div className="step-icon"><Settings size={23}/></div><span className="eyebrow">ENVIRONMENT</span><h1>Register URLs and set secrets</h1><p className="lead">Add these values to <code>.env.local</code> (dev) or your host&apos;s secret manager (production). Restart the server after changes.</p><div className="config-grid"><label className="wide">Website URL<strong>{origin}</strong><small>Set the same value as <code>APP_URL</code> in your environment.</small></label><label className="wide">Callback / Redirect URI<div className="copy-code"><code>{callback}</code><button onClick={()=>void navigator.clipboard.writeText(callback)} aria-label="Copy callback URL"><Link2 size={14}/></button></div><small>Paste this exact URL into the X app OAuth settings. Must match character-for-character.</small></label></div><div className="credential-map"><div><span>ENV VAR</span><strong>X_CLIENT_ID</strong><Link2 size={14}/><span>FROM X</span><strong>OAuth 2.0 Client ID</strong></div><div><span>ENV VAR</span><strong>SESSION_SECRET</strong><Zap size={14}/><span>GENERATE</span><strong>openssl rand -base64 48</strong></div><div><span>ENV VAR</span><strong>APP_URL</strong><Link2 size={14}/><span>YOUR HOST</span><strong>{origin}</strong></div><div><span>ENV VAR</span><strong>CRON_SECRET</strong><Zap size={14}/><span>GENERATE</span><strong>openssl rand -base64 32</strong></div></div><div className="scope-box"><strong>OAuth scopes OpenX requests</strong><div><code>tweet.read</code><code>tweet.write</code><code>users.read</code><code>offline.access</code></div><p><code>offline.access</code> provides a refresh token so sync and publishing keep working without re-login.</p></div></div>}
+        {step === 3 && <div className="setup-step"><div className="step-icon"><Link2 size={23}/></div><span className="eyebrow">AUTHORIZE</span><h1>Connect your X account</h1><p className="lead">After env vars are set and the server restarted, open Settings and click <strong>Continue with X</strong>. You will be redirected to X, review permissions, then returned here automatically.</p><div className="instruction-list"><div><b>1</b><p><strong>Click Continue with X</strong><span>Starts OAuth at <code>/api/x/oauth/start</code> with PKCE.</span></p></div><div><b>2</b><p><strong>Approve on X</strong><span>X redirects to <code>{callback}</code> with a one-time authorization code.</span></p></div><div><b>3</b><p><strong>Tokens stored encrypted</strong><span>Access and refresh tokens are AES-GCM sealed with SESSION_SECRET in your D1 database.</span></p></div><div><b>4</b><p><strong>Go to Discover → Sync from X</strong><span>Live ideas, reply opportunities and analytics replace demo data.</span></p></div></div><div className="security-note"><Zap size={16}/><p><strong>No manual token entry.</strong><span>You do not paste bearer tokens into OpenX. Disconnect in Settings revokes the stored session.</span></p></div><button className="primary-btn finish-setup" onClick={finish}>Open Settings <ArrowUpRight size={15}/></button></div>}
         <footer><button className="ghost-btn" onClick={onClose}>I&apos;ll do this later</button><div><button className="outline-btn" disabled={step === 0} onClick={() => setStep((value) => Math.max(0,value-1))}>Back</button>{step < apiSetupSteps.length-1 && <button className="primary-btn" onClick={() => setStep((value) => value+1)}>Continue <ArrowUpRight size={14}/></button>}</div></footer>
       </div>
     </section>
@@ -382,12 +420,132 @@ function AnalyticsView({ range, setRange, data }: { range: string; setRange: (v:
 
 function SettingsView({ connected, config, csrf, onDisconnected, onOpenGuide }: { connected:boolean;config:AppRuntimeConfig;csrf:string;onDisconnected:()=>void;onOpenGuide:()=>void }) {
   const [message,setMessage]=useState("");
-  const [callback,setCallback]=useState("https://your-domain.com/api/x/oauth/callback");
-  useEffect(() => { setCallback(`${window.location.origin}/api/x/oauth/callback`); }, []);
+  const [origin,setOrigin]=useState("https://your-domain.com");
+  useEffect(() => { setOrigin(window.location.origin); }, []);
+  const callback = `${origin}/api/x/oauth/callback`;
+  const cronExample = `curl -X POST "${origin}/api/cron/publish" -H "Authorization: Bearer $CRON_SECRET"`;
   const disconnect=async()=>{const response=await fetch("/api/x/disconnect",{method:"POST",headers:{"X-CSRF-Token":csrf}});if(response.ok){onDisconnected();setMessage("X disconnected and stored tokens deleted.")}};
   const deleteAll=async()=>{if(!window.confirm("Delete every local draft, schedule, metric, feedback item, cached X post and OAuth token? This cannot be undone."))return;const response=await fetch("/api/data/delete",{method:"DELETE",headers:{"X-CSRF-Token":csrf}});if(response.ok){onDisconnected();setMessage("All local application data was deleted. Refreshing…");setTimeout(()=>window.location.reload(),700)}else setMessage("Deletion failed.")};
   const importData=async(file:File)=>{try{const payload=JSON.parse(await file.text());const response=await fetch("/api/data/import",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify(payload)});const failure=response.ok?undefined:await response.json() as {error?:string};setMessage(response.ok?"Import completed. Refresh to see the data.":`Import failed: ${failure?.error??"unknown error"}`)}catch{setMessage("Invalid JSON export.")}};
-  return <div className="settings-layout"><section className="panel settings-card"><div className="panel-header"><div><span className="eyebrow">FORK-FIRST CONFIGURATION</span><h2>X connection</h2><p>Credentials are read only from this deployment&apos;s environment variables. They are never accepted by the browser or committed to Git.</p></div><div className={`connection-state ${connected?"is-connected":""}`}><i/>{connected?"Connected":"Not connected"}</div></div><div className="config-status"><StatusLine ok={config.configured} label="X_CLIENT_ID and SESSION_SECRET"/><StatusLine ok={config.accessProtected} label="APP_ACCESS_TOKEN protection"/><StatusLine ok={config.aiConfigured} label="Optional AI provider"/><StatusLine ok={!config.aiConfigured||config.aiContentApproved} label="AI policy confirmation"/></div><button className="setup-help" onClick={onOpenGuide}><Lightbulb size={16}/><span><strong>Need help configuring your fork?</strong><small>Open the setup guide</small></span><ArrowUpRight size={15}/></button><label className="callback-field">OAuth callback URL<div className="copy-input"><input readOnly value={callback}/><button type="button" onClick={()=>navigator.clipboard.writeText(callback)} aria-label="Copy callback URL"><Link2 size={15}/></button></div></label><div className="settings-actions">{connected?<button className="danger-btn" onClick={disconnect}>Disconnect X and delete tokens</button>:<a className={`primary-btn ${!config.configured?"disabled":""}`} href={config.configured?"/api/x/oauth/start":"#"}><Link2 size={16}/> Continue with X</a>}<a className="outline-btn" href="/api/data/export" download>Export all data</a><label className="outline-btn file-button">Import JSON<input type="file" accept="application/json" onChange={(event)=>{const file=event.target.files?.[0];if(file)void importData(file)}}/></label><button className="danger-btn" onClick={deleteAll}>Delete all local data</button><a className="outline-btn" href="/privacy">Privacy notice</a></div>{message&&<div className="form-disclaimer"><Check size={14}/><span>{message}</span></div>}</section><aside className="panel principle-card"><Code2 size={22}/><h3>Secure by default</h3><p>OAuth tokens are AES-GCM encrypted before D1 storage. Write actions require CSRF protection, scheduled publishing requires CRON_SECRET, and AI actions remain disabled until the operator confirms policy approval for the declared use case.</p><a href="https://github.com/dg996/OpenX-Growth/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Security model <ArrowUpRight size={13}/></a></aside></div>;
+  return (
+    <div className="settings-layout settings-layout-wide">
+      <section className="panel settings-card">
+        <div className="panel-header">
+          <div>
+            <span className="eyebrow">SETUP GUIDE</span>
+            <h2>Connect OpenX to X</h2>
+            <p>OpenX never asks for your X password or a pasted bearer token. You create an X developer app, set server-side environment variables, then authorize once in the browser.</p>
+          </div>
+          <div className={`connection-state ${connected?"is-connected":""}`}><i/>{connected?"Connected to X":"Not connected"}</div>
+        </div>
+
+        <div className="config-status">
+          <StatusLine ok={config.configured} label="X_CLIENT_ID + SESSION_SECRET in server env" />
+          <StatusLine ok={connected} label="X account authorized (OAuth)" />
+          <StatusLine ok={config.accessProtected} label="APP_ACCESS_TOKEN (private deployments)" optional />
+          <StatusLine ok={config.aiConfigured && config.aiContentApproved} label="AI provider + policy flags" optional />
+        </div>
+
+        <button className="setup-help" onClick={onOpenGuide}><Lightbulb size={16}/><span><strong>Prefer a step-by-step wizard?</strong><small>Open the interactive setup guide</small></span><ArrowUpRight size={15}/></button>
+
+        <GuideStep n={1} title="Create an app in the X Developer Console">
+          <div className="instruction-list">
+            <div><b>1</b><p><strong>Go to console.x.com</strong><span>Create a project, then a new app dedicated to this OpenX instance.</span></p></div>
+            <div><b>2</b><p><strong>User authentication → OAuth 2.0 → Enable</strong><span>Type: Web App or Single Page App. Permissions: <em>Read and write</em>.</span></p></div>
+            <div><b>3</b><p><strong>Copy the OAuth 2.0 Client ID</strong><span>This is <code>X_CLIENT_ID</code>. It is public; the secret (if any) stays server-side only.</span></p></div>
+            <div><b>4</b><p><strong>Confidential clients only</strong><span>If X shows a Client Secret, set <code>X_CLIENT_SECRET</code> in env. Public PKCE clients can leave it empty.</span></p></div>
+          </div>
+          <a className="external-action" href={X_DEV_CONSOLE} target="_blank" rel="noreferrer">Open X Developer Console <ArrowUpRight size={15}/></a>
+        </GuideStep>
+
+        <GuideStep n={2} title="Register these URLs in your X app">
+          <CopyField label="Website URL (also set APP_URL in env)" hint="Must match your deployment origin exactly, no trailing slash." value={origin} />
+          <CopyField label="Callback / Redirect URI" hint="Paste into X OAuth settings. OpenX handles the callback at /api/x/oauth/callback." value={callback} />
+          <div className="scope-box">
+            <strong>OAuth scopes requested by OpenX</strong>
+            <div><code>tweet.read</code><code>tweet.write</code><code>users.read</code><code>offline.access</code></div>
+            <p><code>offline.access</code> enables refresh tokens for sync, publishing and scheduled posts.</p>
+          </div>
+        </GuideStep>
+
+        <GuideStep n={3} title="Set environment variables on the server">
+          <p className="settings-lead">Copy <code>.env.example</code> to <code>.env.local</code> for development, or use your host&apos;s secret manager in production. <strong>Never commit real values to Git.</strong></p>
+          <div className="env-var-list">
+            <EnvVarRow name="X_CLIENT_ID" required description="OAuth 2.0 Client ID from the X Developer Console. Enables OAuth start and token exchange." example="X_CLIENT_ID=your_oauth_2_client_id" />
+            <EnvVarRow name="SESSION_SECRET" required description="Encrypts OAuth tokens before D1 storage. Generate with: openssl rand -base64 48" example="SESSION_SECRET=a_long_random_string_at_least_32_chars" />
+            <EnvVarRow name="APP_URL" required description="Public origin of this deployment. Must match Website URL registered in X." example={`APP_URL=${origin}`} />
+            <EnvVarRow name="X_CLIENT_SECRET" description="Only if X treats your app as a confidential OAuth client. Public SPA/PKCE apps skip this." example="X_CLIENT_SECRET=" />
+            <EnvVarRow name="APP_ACCESS_TOKEN" description="Optional. Leave empty for public demo mode. Set to require a login gate on private deployments." example="APP_ACCESS_TOKEN=" />
+            <EnvVarRow name="CRON_SECRET" description="Protects POST /api/cron/publish for scheduled publishing. Use a unique random value." example="CRON_SECRET=openssl_rand_base64_32" />
+            <EnvVarRow name="OPENX_API_TOKEN" description="Bearer token for REST API and MCP automation. Separate from X credentials." example="OPENX_API_TOKEN=openssl_rand_base64_32" />
+          </div>
+          <div className="security-note"><Github size={16}/><p><strong>After editing env vars</strong><span>Restart the dev server or redeploy. Settings status lines above should turn green before connecting X.</span></p></div>
+        </GuideStep>
+
+        <GuideStep n={4} title="Authorize your X account (OAuth)">
+          <div className="instruction-list">
+            <div><b>1</b><p><strong>Click Continue with X below</strong><span>Redirects to X login and permission review.</span></p></div>
+            <div><b>2</b><p><strong>Approve requested scopes</strong><span>X sends a one-time code to {callback}.</span></p></div>
+            <div><b>3</b><p><strong>OpenX exchanges the code</strong><span>Access + refresh tokens are encrypted and stored in your database.</span></p></div>
+            <div><b>4</b><p><strong>Discover → Sync from X</strong><span>Replaces demo signals with live ideas and reply opportunities from your home timeline.</span></p></div>
+          </div>
+          <div className="settings-actions settings-actions-primary">
+            {connected
+              ? <button className="danger-btn" onClick={disconnect}>Disconnect X and delete tokens</button>
+              : <a className={`primary-btn ${!config.configured?"disabled":""}`} href={config.configured?"/api/x/oauth/start":"#"}><Link2 size={16}/> Continue with X</a>}
+            <a className="outline-btn" href={X_OAUTH_DOCS} target="_blank" rel="noreferrer">X OAuth docs <ArrowUpRight size={14}/></a>
+          </div>
+          {!config.configured && <div className="inline-error">Set X_CLIENT_ID and SESSION_SECRET first, then restart the server.</div>}
+        </GuideStep>
+
+        <GuideStep n={5} title="Optional — AI writing assistant">
+          <p className="settings-lead">AI is off by default. OpenX calls <em>your</em> OpenAI-compatible API; content is never sent to OpenX maintainers.</p>
+          <div className="env-var-list">
+            <EnvVarRow name="AI_API_KEY" description="API key from OpenAI, OpenRouter, or any OpenAI-compatible provider." example="AI_API_KEY=sk-..." />
+            <EnvVarRow name="AI_BASE_URL" description="Provider base URL." example="AI_BASE_URL=https://api.openai.com/v1" />
+            <EnvVarRow name="AI_MODEL" description="Model slug used for suggestions in the composer." example="AI_MODEL=gpt-4o-mini" />
+            <EnvVarRow name="X_AI_CONTENT_APPROVED" description="Set to true only after you confirm your X developer use case permits AI-assisted drafting." example="X_AI_CONTENT_APPROVED=false" />
+            <EnvVarRow name="X_AI_REPLIES_APPROVED" description="Set to true only if AI-assisted reply suggestions are permitted for your use case." example="X_AI_REPLIES_APPROVED=false" />
+          </div>
+          <div className="security-note"><Sparkles size={16}/><p><strong>Human review required</strong><span>AI output is always labeled and must be edited before publish. No autonomous replies or DMs.</span></p></div>
+        </GuideStep>
+
+        <GuideStep n={6} title="Optional — Scheduled publishing">
+          <p className="settings-lead">Schedule posts in the composer, then call the protected cron endpoint every 5 minutes from GitHub Actions, cron, or your host.</p>
+          <CopyField label="Cron publish command" hint="Replace $CRON_SECRET with the value from your environment." value={cronExample} />
+        </GuideStep>
+
+        <GuideStep n={7} title="Data controls">
+          <div className="settings-actions">
+            <a className="outline-btn" href="/api/data/export" download>Export all data</a>
+            <label className="outline-btn file-button">Import JSON<input type="file" accept="application/json" onChange={(event)=>{const file=event.target.files?.[0];if(file)void importData(file)}}/></label>
+            <button className="danger-btn" onClick={deleteAll}>Delete all local data</button>
+            <a className="outline-btn" href="/privacy">Privacy notice</a>
+          </div>
+          {message && <div className="form-disclaimer"><Check size={14}/><span>{message}</span></div>}
+        </GuideStep>
+      </section>
+
+      <aside className="panel principle-card settings-checklist">
+        <Code2 size={22}/>
+        <h3>Quick checklist</h3>
+        <ol className="setup-checklist">
+          <li className={config.configured?"done":""}>X app created + Client ID copied</li>
+          <li className={config.configured?"done":""}>Callback URL registered in X</li>
+          <li className={config.configured?"done":""}>SESSION_SECRET generated</li>
+          <li className={connected?"done":""}>Continue with X completed</li>
+          <li className={connected?"done":""}>Discover → Sync from X</li>
+          <li>Content → create draft → publish test</li>
+        </ol>
+        <p>OAuth tokens never appear in the UI or exports. Disconnect removes encrypted tokens from your database.</p>
+        <a href="https://github.com/dg996/OpenX-Growth/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Security model <ArrowUpRight size={13}/></a>
+      </aside>
+    </div>
+  );
 }
 
-function StatusLine({ok,label}:{ok:boolean;label:string}){return <div className={ok?"ok":"warning"}>{ok?<Check size={14}/>:<X size={14}/>}<span>{label}</span><b>{ok?"Ready":"Required"}</b></div>}
+function StatusLine({ok,label,optional}:{ok:boolean;label:string;optional?:boolean}) {
+  const tone = ok ? "ok" : optional ? "neutral" : "warning";
+  const status = ok ? "Ready" : optional ? "Optional" : "Required";
+  return <div className={tone}>{ok?<Check size={14}/>:optional?<CircleGauge size={14}/>:<X size={14}/>}<span>{label}</span><b>{status}</b></div>;
+}

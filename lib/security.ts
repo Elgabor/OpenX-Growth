@@ -1,4 +1,4 @@
-import type { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { appConfig, instanceConfigured } from "./config.ts";
 
 export const SESSION_COOKIE = "__Host-openx_session";
@@ -81,5 +81,5 @@ export async function hasAppAccess(request:NextRequest) {
 
 export function configuredInstanceResponse() {
   if (instanceConfigured()) return null;
-  return NextResponse.json({error:"INSTANCE_NOT_CONFIGURED",message:"Configure X_CLIENT_ID and SESSION_SECRET in your environment to enable this action."},{status:503});
+  return Response.json({error:"INSTANCE_NOT_CONFIGURED",message:"Configure X_CLIENT_ID and SESSION_SECRET in your environment to enable this action."},{status:503});
 }

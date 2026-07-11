@@ -69,9 +69,9 @@ Generate independent secrets:
 
 ```bash
 openssl rand -base64 48  # SESSION_SECRET
-openssl rand -base64 32  # APP_ACCESS_TOKEN
-openssl rand -base64 32  # CRON_SECRET
-openssl rand -base64 32  # OPENX_API_TOKEN
+openssl rand -base64 32  # CRON_SECRET (optional until you enable scheduled publishing)
+openssl rand -base64 32  # OPENX_API_TOKEN (optional for REST/MCP automation)
+openssl rand -base64 32  # APP_ACCESS_TOKEN (optional — leave empty for public demo mode)
 ```
 
 Never reuse these values and never commit `.env.local`.
@@ -106,10 +106,12 @@ See [.env.example](.env.example). At minimum, production needs:
 APP_URL=https://YOUR_DEPLOYMENT_HOST
 X_CLIENT_ID=your_oauth_2_client_id
 SESSION_SECRET=a_random_value_with_at_least_32_characters
-APP_ACCESS_TOKEN=a_separate_random_private_access_token
-CRON_SECRET=a_separate_random_cron_secret
-OPENX_API_TOKEN=a_separate_random_api_and_mcp_token
+APP_ACCESS_TOKEN=
+CRON_SECRET=
+OPENX_API_TOKEN=
 ```
+
+`APP_ACCESS_TOKEN` is optional. Leave it empty to browse the dashboard in public demo mode. Set it on private deployments to require a login gate before anyone can use the instance.
 
 Do not prefix secret variables with `NEXT_PUBLIC_`.
 
@@ -143,7 +145,7 @@ Set production secrets with `wrangler secret put NAME`; do not place them in `wr
 npm run dev
 ```
 
-Open the local URL, enter `APP_ACCESS_TOKEN`, then use Settings → Continue with X.
+Open the local URL. The dashboard loads immediately in demo mode. For a real X connection, set `X_CLIENT_ID` and `SESSION_SECRET`, restart the dev server, then use **Settings → Continue with X**. If you set `APP_ACCESS_TOKEN`, you must log in first.
 
 ## 6. Scheduler
 
@@ -273,7 +275,7 @@ You are responsible for your X developer account, API costs, content and complia
 
 ## Important operational boundaries
 
-- The instance fails closed when `APP_ACCESS_TOKEN` is missing.
+- Public demo mode works without `APP_ACCESS_TOKEN`. Private deployments should set it so the instance requires login before use.
 - Reply suggestions never publish without a user click. The MCP server intentionally exposes no reply tool.
 - The scheduler claims a record atomically before publishing so two workers cannot intentionally process the same due item.
 - X does not expose a general idempotency key for Post creation. A crash after X accepts a Post but before the local receipt is stored can still require manual reconciliation.
