@@ -1,6 +1,8 @@
 # OpenX Growth
 
 Open-source, self-hosted tools for growing on X without giving a third-party service your account credentials or content history.
+<img width="1710" height="984" alt="Screenshot 2026-07-11 alle 22 13 26" src="https://github.com/user-attachments/assets/242b527c-bc74-4468-bb5f-1a3cffe54770" />
+
 
 OpenX Growth connects to the official X API, analyzes the accounts you follow and your own posts, helps you find relevant conversations, manages drafts and threads, schedules posts, records analytics snapshots, and optionally uses your own AI provider. Each user forks and deploys their own isolated instance.
 
