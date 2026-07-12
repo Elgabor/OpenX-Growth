@@ -290,4 +290,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports should follow [SECURITY
 
 ## License
 
-OpenX Growth is licensed under the [GNU Affero General Public License v3.0](LICENSE). If you modify it and make the modified software available over a network, you must offer the corresponding source code as required by the license.
+OpenX Growth is licensed under the [Apache License, Version 2.0](LICENSE). You may use, modify, and distribute it under those terms. See [NOTICE](NOTICE) for attribution requirements.

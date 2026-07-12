@@ -2,7 +2,7 @@
   "name": "openx-growth",
   "version": "0.1.0",
   "description": "Self-hosted, open-source X growth intelligence, content and scheduling tools.",
-  "license": "AGPL-3.0-only",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/dg996/OpenX-Growth.git"

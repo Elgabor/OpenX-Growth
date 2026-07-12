@@ -30,7 +30,7 @@ Generated migrations belong in `drizzle/`. Do not rewrite an applied migration; 
 - State how the change was tested.
 - Keep unrelated formatting changes out of the PR.
 
-By contributing, you agree that your contribution is licensed under AGPL-3.0-only.
+By contributing, you agree that your contribution is licensed under the Apache License, Version 2.0.
 
 ## Security issues
 
