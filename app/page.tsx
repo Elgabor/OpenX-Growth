@@ -207,8 +207,7 @@ const apiSetupSteps = [
 
 function SetupGuide({ onClose, onGoToSettings }: { onClose: () => void; onGoToSettings: () => void }) {
   const [step, setStep] = useState(0);
-  const [origin, setOrigin] = useState("https://your-domain.com");
-  useEffect(() => { setOrigin(window.location.origin); }, []);
+  const [origin] = useState(() => (typeof window === "undefined" ? "https://your-domain.com" : window.location.origin));
   const callback = `${origin}/api/x/oauth/callback`;
   const finish = () => {
     localStorage.setItem("openx-onboarding-complete", "true");
@@ -256,12 +255,14 @@ export default function HomePage() {
   const [lastSync, setLastSync] = useState<string>();
   const [selectedReply, setSelectedReply] = useState<ReplyOpportunity>();
   const [csrf,setCsrf]=useState("");
-  const [runtimeConfig,setRuntimeConfig]=useState<AppRuntimeConfig>({configured:false,accessProtected:false,aiConfigured:false,aiContentApproved:false,aiRepliesApproved:false,evergreenEnabled:false,syncTtlSeconds:900});
+  const [runtimeConfig,setRuntimeConfig]=useState<AppRuntimeConfig>({configured:false,demoMode:true,accessProtected:false,aiConfigured:false,aiContentApproved:false,aiRepliesApproved:false,evergreenEnabled:false,syncTtlSeconds:900});
   const [analytics,setAnalytics]=useState<AnalyticsData>();
   const [account,setAccount]=useState<AccountProfile>();
   useEffect(() => {
     const storedTheme = localStorage.getItem("openx-theme") as "dark" | "light" | null;
     const preferredTheme = storedTheme ?? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    // Client-only preferences after mount — avoids SSR/localStorage hydration mismatch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional post-mount read
     setTheme(preferredTheme);
     document.documentElement.dataset.theme = preferredTheme;
     setSetupGuide(localStorage.getItem("openx-onboarding-complete") !== "true");
@@ -420,8 +421,7 @@ function AnalyticsView({ range, setRange, data }: { range: string; setRange: (v:
 
 function SettingsView({ connected, config, csrf, onDisconnected, onOpenGuide }: { connected:boolean;config:AppRuntimeConfig;csrf:string;onDisconnected:()=>void;onOpenGuide:()=>void }) {
   const [message,setMessage]=useState("");
-  const [origin,setOrigin]=useState("https://your-domain.com");
-  useEffect(() => { setOrigin(window.location.origin); }, []);
+  const [origin] = useState(() => (typeof window === "undefined" ? "https://your-domain.com" : window.location.origin));
   const callback = `${origin}/api/x/oauth/callback`;
   const cronExample = `curl -X POST "${origin}/api/cron/publish" -H "Authorization: Bearer $CRON_SECRET"`;
   const disconnect=async()=>{const response=await fetch("/api/x/disconnect",{method:"POST",headers:{"X-CSRF-Token":csrf}});if(response.ok){onDisconnected();setMessage("X disconnected and stored tokens deleted.")}};

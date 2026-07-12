@@ -1,4 +1,4 @@
-import type { NextRequest } from "next/server";
+import type { NextRequest, NextResponse } from "next/server";
 import { appConfig, instanceConfigured } from "./config.ts";
 
 export const SESSION_COOKIE = "__Host-openx_session";

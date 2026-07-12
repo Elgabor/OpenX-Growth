@@ -19,7 +19,7 @@ test("sealed sessions do not expose plaintext",async()=>{
 test("demo mode allows browsing without access token",async()=>{
   delete process.env.APP_ACCESS_TOKEN;
   const {hasAppAccess}=await import("../lib/security.ts");
-  const request={headers:{get:()=>null},cookies:{get:()=>undefined}} as import("next/server").NextRequest;
+  const request={headers:{get:()=>null},cookies:{get:()=>undefined}} as unknown as import("next/server").NextRequest;
   assert.equal(await hasAppAccess(request),true);
 });
 
