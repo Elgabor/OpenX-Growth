@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appConfig } from "../../../../../lib/config";
-import { cookieName, hasAppAccess, OAUTH_COOKIE, randomToken, seal } from "../../../../../lib/security";
+import { authorizeBrowserRead, cookieName, OAUTH_COOKIE, randomToken, seal } from "../../../../../lib/security";
 
 const base64url = (bytes:Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"");
 
 export async function GET(request:NextRequest) {
-  if (!await hasAppAccess(request)) return NextResponse.redirect(new URL("/login",request.url));
+  const denied=await authorizeBrowserRead(request);if(denied)return denied;
   const config = appConfig();
   if (!config.xClientId || !config.sessionSecret) return NextResponse.redirect(new URL("/?x_error=not_configured",request.url));
   const verifier = randomToken(48);

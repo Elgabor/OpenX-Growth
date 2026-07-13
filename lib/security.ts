@@ -1,5 +1,5 @@
 import type { NextRequest, NextResponse } from "next/server";
-import { appConfig, instanceConfigured } from "./config.ts";
+import { appConfig, deploymentPosture, instanceConfigured } from "./config.ts";
 
 export const SESSION_COOKIE = "__Host-openx_session";
 export const OAUTH_COOKIE = "__Host-openx_oauth";
@@ -72,11 +72,51 @@ export function isAccessProtected() {
 }
 
 export async function hasAppAccess(request:NextRequest) {
-  const expected = appConfig().appAccessToken;
-  if (!expected) return true;
-  if (request.headers.get("authorization") === `Bearer ${expected}`) return true;
-  const auth = await unseal<{authorized:boolean}>(readCookie(request,AUTH_COOKIE));
-  return auth?.authorized === true;
+  const posture=deploymentPosture();
+  if(posture==="demo")return true;
+  if(posture==="misconfigured")return false;
+  const auth = await unseal<{authorized:boolean;expiresAt:number}>(readCookie(request,AUTH_COOKIE));
+  return auth?.authorized === true&&Number.isFinite(auth.expiresAt)&&auth.expiresAt>Date.now();
+}
+
+function postureResponse() {
+  return deploymentPosture()==="misconfigured"
+    ? Response.json({error:"APP_ACCESS_TOKEN_REQUIRED",message:"Configured instances must set APP_ACCESS_TOKEN before any application data is exposed."},{status:503,headers:{"Cache-Control":"no-store"}})
+    : null;
+}
+
+export function configuredAccessGateResponse(){return postureResponse();}
+
+const unauthorizedResponse=()=>Response.json({error:"UNAUTHORIZED"},{status:401,headers:{"Cache-Control":"no-store"}});
+
+export async function authorizeBrowserRead(request:NextRequest) {
+  const blocked=postureResponse();
+  if(blocked)return blocked;
+  return await hasAppAccess(request)?null:unauthorizedResponse();
+}
+
+export async function authorizeBrowserOrApiRead(request:NextRequest) {
+  const blocked=postureResponse();
+  if(blocked)return blocked;
+  if(hasApiAuth(request))return null;
+  return await hasAppAccess(request)?null:unauthorizedResponse();
+}
+
+export async function authorizeBrowserMutation(request:NextRequest) {
+  const unconfigured=configuredInstanceResponse();
+  if(unconfigured)return unconfigured;
+  const denied=await authorizeBrowserRead(request);
+  if(denied)return denied;
+  try{requireCsrf(request);return null;}catch{return Response.json({error:"INVALID_CSRF"},{status:403});}
+}
+
+export async function authorizeBrowserOrApiMutation(request:NextRequest) {
+  const unconfigured=configuredInstanceResponse();
+  if(unconfigured)return unconfigured;
+  const denied=await authorizeBrowserOrApiRead(request);
+  if(denied)return denied;
+  if(hasApiAuth(request))return null;
+  try{requireCsrf(request);return null;}catch{return Response.json({error:"INVALID_CSRF"},{status:403});}
 }
 
 export function configuredInstanceResponse() {

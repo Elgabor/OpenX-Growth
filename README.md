@@ -26,8 +26,10 @@ OpenX Growth connects to the official X API, analyzes the accounts you follow an
 - Persistent D1 content queue and protected scheduled publisher.
 - Idempotent thread publishing with partial-progress recovery.
 - Optional evergreen recycling with configurable intervals and a default-off policy gate.
-- Analytics snapshots grouped by topic, format, hook and posting hour.
-- Daily X API read/write budgets, caching and rate-limit protection.
+- Post and follower snapshots with explicit `live`/`derived`/`estimate` provenance and timestamps. Date ranges filter the real series; sparse ranges show `Insufficient data`.
+- Posting-time recommendations use median engagement rate by UTC hour, require at least eight linked published posts overall and at least two samples for each suggested hour.
+- Deterministic, versioned EN/IT ranking uses Unicode topics, freshness, topical affinity, reach, engagement, novelty and bounded 90-day feedback. Results expose material score features and apply author/topic diversity; feedback never triggers an autonomous reply.
+- Atomic daily X resource/write-attempt budgets, request events, caching and provider rate-limit metadata.
 - Light and dark themes; actionable notification center.
 - JSON import/export with no credentials included.
 - Optional OpenAI-compatible AI provider using your own API key.
@@ -71,7 +73,7 @@ Generate independent secrets:
 openssl rand -base64 48  # SESSION_SECRET
 openssl rand -base64 32  # CRON_SECRET (optional until you enable scheduled publishing)
 openssl rand -base64 32  # OPENX_API_TOKEN (optional for REST/MCP automation)
-openssl rand -base64 32  # APP_ACCESS_TOKEN (optional — leave empty for public demo mode)
+openssl rand -base64 32  # APP_ACCESS_TOKEN (required before configuring X)
 ```
 
 Never reuse these values and never commit `.env.local`.
@@ -106,12 +108,12 @@ See [.env.example](.env.example). At minimum, production needs:
 APP_URL=https://YOUR_DEPLOYMENT_HOST
 X_CLIENT_ID=your_oauth_2_client_id
 SESSION_SECRET=a_random_value_with_at_least_32_characters
-APP_ACCESS_TOKEN=
+APP_ACCESS_TOKEN=a_distinct_random_access_token
 CRON_SECRET=
 OPENX_API_TOKEN=
 ```
 
-`APP_ACCESS_TOKEN` is optional. Leave it empty to browse the dashboard in public demo mode. Set it on private deployments to require a login gate before anyone can use the instance.
+`APP_ACCESS_TOKEN` may be empty only while the instance is an unconfigured, write-disabled public demo. As soon as `X_CLIENT_ID` and `SESSION_SECRET` configure the instance, a missing application token fails closed before any application data, OAuth flow, API token or scheduler token is accepted.
 
 Do not prefix secret variables with `NEXT_PUBLIC_`.
 
@@ -145,7 +147,7 @@ Set production secrets with `wrangler secret put NAME`; do not place them in `wr
 npm run dev
 ```
 
-Open the local URL. The dashboard loads immediately in demo mode. For a real X connection, set `X_CLIENT_ID` and `SESSION_SECRET`, restart the dev server, then use **Settings → Continue with X**. If you set `APP_ACCESS_TOKEN`, you must log in first.
+Open the local URL. The dashboard loads immediately in unconfigured, write-disabled demo mode. Before setting `X_CLIENT_ID` and `SESSION_SECRET`, also set `APP_ACCESS_TOKEN`; restart the dev server, log in, then use **Settings → Continue with X**.
 
 ## 6. Scheduler
 
@@ -161,7 +163,7 @@ The included `.github/workflows/scheduler.yml` can do this. Add these repository
 - `OPENX_BASE_URL`
 - `OPENX_CRON_SECRET`
 
-Publishing is idempotent. For threads, every successfully published part is recorded before the next request, so retries do not duplicate completed parts.
+Publishing uses expiring conditional leases. For threads, each confirmed X identifier and its acceptance/confirmation timestamps are stored before the next part starts, so an expired safe lease resumes after the last confirmed part. This is not an exact-once guarantee: if X may have accepted a request before its local receipt exists, the post moves to `needs_review` and is never retried automatically.
 
 ## AI features and X approval
 
@@ -186,11 +188,13 @@ X API access is pay-per-use. OpenX caches intelligence syncs and enforces daily 
 
 ```dotenv
 SYNC_TTL_SECONDS=900
-MAX_DAILY_X_READS=500
+MAX_DAILY_X_RESOURCES=500
 MAX_DAILY_X_WRITES=50
 ```
 
-Tune these limits for your plan. A manual forced sync bypasses cache but still counts against the local budget.
+Each outbound call increments the request count. Reads reserve their requested worst-case resource count atomically, then reconcile to successfully returned users/posts; failed calls and `429` responses consume zero resources. Every outbound post/reply attempt consumes one write unit regardless of provider status, and a retry is a separate request and write attempt. `MAX_DAILY_X_READS` remains a legacy fallback when the resource variable is unset.
+
+Tune these local limits below your paid plan. A manual forced sync bypasses cache but still counts against the budget. The X provider console spend limit remains the external hard backstop; local counters cannot replace it.
 
 ## REST API
 
@@ -213,6 +217,8 @@ Main endpoints:
 - `POST /api/feedback`
 
 Browser sessions use CSRF protection instead of the API token.
+
+`POST /api/posts/:id/publish` accepts an empty body for a normal publish. A `needs_review` record requires an explicit operator reconciliation on the same endpoint: `{ "action":"reconcile", "resolution":"accepted", "xPostIds":[...] }` records the verified complete X thread, while `{ "action":"reconcile", "resolution":"not_accepted" }` confirms that the ambiguous request was not accepted and makes only unconfirmed parts retryable. Reconciliation performs no X request. Schema-v1 exports remain content-portable and omit lease tokens, delivery state, and operational receipts; a `needs_review` status is exported conservatively as `failed`.
 
 ## MCP server
 
@@ -288,10 +294,10 @@ You are responsible for your X developer account, API costs, content and complia
 
 ## Important operational boundaries
 
-- Public demo mode works without `APP_ACCESS_TOKEN`. Private deployments should set it so the instance requires login before use.
+- Public demo mode works without `APP_ACCESS_TOKEN` only while X is unconfigured and every mutation is disabled. Every configured instance requires the token and fails closed without it.
 - Reply suggestions never publish without a user click. The MCP server intentionally exposes no reply tool.
-- The scheduler claims a record atomically before publishing so two workers cannot intentionally process the same due item.
-- X does not expose a general idempotency key for Post creation. A crash after X accepts a Post but before the local receipt is stored can still require manual reconciliation.
+- The scheduler claims a record with an expiring lease. Active leases cannot be stolen; expired leases resume only from confirmed receipts.
+- X does not expose a general idempotency key for Post creation. A possible acceptance without a local receipt becomes `needs_review` and requires explicit manual reconciliation; OpenX never blindly retries it.
 - GitHub Actions schedules are best effort and can run late. Use a platform cron service when exact timing matters.
 - AI and evergreen behavior remain disabled until the operator explicitly enables the relevant policy gates.
 

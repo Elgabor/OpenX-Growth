@@ -8,6 +8,27 @@
       "when": 1783779585359,
       "tag": "0000_far_blink",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783936411067,
+      "tag": "0001_woozy_darkstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783937527482,
+      "tag": "0002_clean_proteus",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1783938277205,
+      "tag": "0003_rainy_juggernaut",
+      "breakpoints": true
     }
   ]
 }

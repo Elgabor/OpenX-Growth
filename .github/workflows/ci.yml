@@ -15,10 +15,7 @@ jobs:
           node-version: 22.13.0
           cache: npm
       - run: npm ci
-      - run: npm run privacy:audit
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
+      - run: npm run release:check
   secrets:
     runs-on: ubuntu-latest
     steps:

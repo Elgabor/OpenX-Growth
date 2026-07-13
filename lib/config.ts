@@ -26,7 +26,8 @@ export const appConfig = () => ({
   xAiContentApproved: env("X_AI_CONTENT_APPROVED","false") === "true",
   xAiRepliesApproved: env("X_AI_REPLIES_APPROVED","false") === "true",
   evergreenEnabled: env("ENABLE_EVERGREEN","false") === "true",
-  maxDailyReads: Number(env("MAX_DAILY_X_READS","500")),
+  maxDailyResources: Number(env("MAX_DAILY_X_RESOURCES",env("MAX_DAILY_X_READS","500"))),
+  maxDailyReads: Number(env("MAX_DAILY_X_RESOURCES",env("MAX_DAILY_X_READS","500"))),
   maxDailyWrites: Number(env("MAX_DAILY_X_WRITES","50")),
   syncTtlSeconds: Number(env("SYNC_TTL_SECONDS","900")),
 });
@@ -36,12 +37,22 @@ export function instanceConfigured() {
   return Boolean(config.xClientId && config.sessionSecret);
 }
 
+export type DeploymentPosture="demo"|"misconfigured"|"protected";
+
+export function deploymentPosture():DeploymentPosture {
+  const config=appConfig();
+  if(config.appAccessToken)return "protected";
+  return instanceConfigured()?"misconfigured":"demo";
+}
+
 export function publicConfig() {
   const config = appConfig();
+  const posture=deploymentPosture();
   return {
     configured:instanceConfigured(),
-    demoMode:!config.appAccessToken,
-    accessProtected:Boolean(config.appAccessToken),
+    demoMode:posture==="demo",
+    accessProtected:posture==="protected",
+    configurationError:posture==="misconfigured"?"APP_ACCESS_TOKEN_REQUIRED":null,
     aiConfigured:Boolean(config.aiApiKey),
     aiContentApproved:config.xAiContentApproved,
     aiRepliesApproved:config.xAiRepliesApproved,

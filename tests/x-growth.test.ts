@@ -16,7 +16,9 @@ test("reply opportunities are ranked and retain X post identity", () => {
   assert.equal(ranked[0].handle,"@fast");
   assert.equal(ranked[0].reach,"70K");
   assert.equal(ranked[0].suggestedReply,"");
-  assert.ok(ranked[0].reason.includes("followers"));
+  assert.match(ranked[0].reason,/freshness|engagement velocity|author reach/);
+  assert.equal(ranked[0].reachProvenance.source,"live");
+  assert.equal(ranked[0].relevanceProvenance.source,"derived");
 });
 
 test("ideas come from feed topics missing from recent authored posts", () => {
@@ -30,6 +32,8 @@ test("ideas come from feed topics missing from recent authored posts", () => {
   assert.ok(ideas.some((idea) => idea.topic.toLowerCase().includes("agentic")));
   assert.ok(ideas.every((idea) => idea.hook && idea.rationale));
   assert.ok(ideas.every((idea) => idea.pillar));
+  assert.ok(ideas.every((idea) => idea.bars === undefined));
+  assert.ok(ideas.every((idea) => idea.scoreProvenance.source === "derived"));
 });
 
 test("ideas ignore generic conversational words from a real home timeline", () => {

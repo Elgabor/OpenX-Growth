@@ -1,16 +1,27 @@
 import { desc } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "../../../db";
-import { analyticsSnapshots, posts } from "../../../db/schema";
-import { hasApiAuth, hasAppAccess } from "../../../lib/security";
+import { analyticsSnapshots, followerSnapshots, posts } from "../../../db/schema";
+import { deploymentPosture } from "../../../lib/config";
+import { authorizeBrowserOrApiRead } from "../../../lib/security";
 import { getUsage } from "../../../lib/data";
-import { summarizeLatestSnapshots } from "../../../lib/analytics";
+import { buildAnalyticsView, type AnalyticsRange } from "../../../lib/analytics";
 
 export async function GET(request:NextRequest) {
-  if(!await hasAppAccess(request)&&!hasApiAuth(request))return NextResponse.json({error:"UNAUTHORIZED"},{status:401});
-  const [postRows,snapshots]=await Promise.all([getDb().select().from(posts).orderBy(desc(posts.createdAt)).limit(500),getDb().select().from(analyticsSnapshots).orderBy(desc(analyticsSnapshots.recordedAt)).limit(2000)]);
-  const {latest,totals}=summarizeLatestSnapshots(snapshots);
-  const rows=postRows.map((post)=>({post,metrics:latest.get(post.xPostId??"")})).filter((row)=>row.metrics);
-  const group=(key:(post:(typeof postRows)[number])=>string)=>Object.values(rows.reduce<Record<string,{label:string;posts:number;impressions:number;engagements:number}>>((map,row)=>{const label=key(row.post)||"Uncategorized";const item=map[label]??={label,posts:0,impressions:0,engagements:0};item.posts++;item.impressions+=row.metrics?.impressions??0;item.engagements+=(row.metrics?.likes??0)+(row.metrics?.replies??0)+(row.metrics?.reposts??0);return map},{})).sort((a,b)=>b.impressions-a.impressions);
-  return NextResponse.json({source:rows.length?"live":"empty",totals,byTopic:group((post)=>post.topic??"Uncategorized"),byFormat:group((post)=>post.format),byHook:group((post)=>(post.hook??post.text).split(" ").slice(0,5).join(" ")),byHour:group((post)=>post.publishedAt?`${new Date(post.publishedAt).getUTCHours().toString().padStart(2,"0")}:00 UTC`:"Unscheduled"),usage:await getUsage()});
+  const denied=await authorizeBrowserOrApiRead(request);if(denied)return denied;
+  const requestedRange=request.nextUrl.searchParams.get("range");
+  const range:AnalyticsRange=requestedRange&&["7D","28D","90D","1Y"].includes(requestedRange)?requestedRange as AnalyticsRange:"28D";
+  const now=Date.now();
+  if(deploymentPosture()==="demo"){
+    const view=buildAnalyticsView({now,range,posts:[],snapshots:[],followerSnapshots:[]});
+    return NextResponse.json({...view,usage:{requests:0,resources:0,reservedResources:0,writes:0,maxResources:0,maxWrites:0,remainingResources:0,remainingWrites:0,warning:false,reads:0,maxReads:0,events:[],provenance:{source:"demo",recordedAt:now}}});
+  }
+  const [postRows,snapshots,followers,usage]=await Promise.all([
+    getDb().select().from(posts).orderBy(desc(posts.createdAt)).limit(500),
+    getDb().select().from(analyticsSnapshots).orderBy(desc(analyticsSnapshots.recordedAt)).limit(2000),
+    getDb().select().from(followerSnapshots).orderBy(desc(followerSnapshots.recordedAt)).limit(1000),
+    getUsage(),
+  ]);
+  const view=buildAnalyticsView({now,range,posts:postRows,snapshots,followerSnapshots:followers});
+  return NextResponse.json({...view,usage:{...usage,provenance:{source:"live",recordedAt:now}}});
 }
