@@ -37,7 +37,7 @@ export type IdeaSignal = {
   pillar: string;
 };
 
-const stopwords = new Set(["about","after","again","also","been","being","build","could","does","from","have","into","just","more","most","only","over","really","should","some","than","that","their","there","these","they","this","through","what","when","where","which","while","with","would","your","you're","https"]);
+const stopwords = new Set(["about","after","again","also","been","being","build","could","does","even","first","from","good","have","here","into","just","know","like","make","more","most","much","need","only","over","people","really","should","some","still","than","that","their","there","these","they","thing","things","this","through","time","today","using","very","want","well","what","when","where","which","while","will","with","work","would","your","you're","https"]);
 
 const compactNumber = (value: number) => value >= 1_000_000 ? `${(value/1_000_000).toFixed(1)}M` : value >= 1_000 ? `${Math.round(value/1_000)}K` : `${value}`;
 

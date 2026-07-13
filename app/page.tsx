@@ -53,11 +53,13 @@ type ContentItem = {
 type SavePostInput = {text:string;thread:string[];scheduledAt?:number;evergreen:boolean;evergreenIntervalDays:number;generated:boolean;topic?:string;hook?:string};
 type AppRuntimeConfig={configured:boolean;demoMode:boolean;accessProtected:boolean;aiConfigured:boolean;aiContentApproved:boolean;aiRepliesApproved:boolean;evergreenEnabled:boolean;syncTtlSeconds:number};
 type AnalyticsData={source:string;totals:{impressions:number;likes:number;replies:number;reposts:number};byTopic:Array<{label:string;posts:number;impressions:number;engagements:number}>;byFormat:Array<{label:string;posts:number;impressions:number;engagements:number}>;byHook:Array<{label:string;posts:number;impressions:number;engagements:number}>;byHour:Array<{label:string;posts:number;impressions:number;engagements:number}>;usage:{reads:number;writes:number;maxReads:number;maxWrites:number}};
-type AccountProfile={id:string;name:string;username:string;profileImageUrl?:string};
+type AccountProfile={id:string;name:string;username:string;profileImageUrl?:string;followersCount?:number};
 type StoredPost={id:string;text:string;status:string;scheduledAt?:number;publishedAt?:number;evergreen?:boolean;lastError?:string};
 type PostsPayload={posts:StoredPost[]};
 type SyncPayload={account:AccountProfile;opportunities:ReplyOpportunity[];ideas:IdeaSignal[];syncedAt:string;error?:string};
 type AiPayload={content?:string|string[];error?:string};
+
+async function fetchAnalyticsData():Promise<AnalyticsData | undefined>{const response=await fetch("/api/analytics");return response.ok?await response.json() as AnalyticsData:undefined}
 
 const navItems = [
   { label: "Overview" as View, icon: Home },
@@ -277,16 +279,16 @@ export default function HomePage() {
       const statusResponse=await fetch("/api/x/status");
       if(statusResponse.status===401){window.location.href="/login";return}
       const status=statusResponse.ok?await statusResponse.json() as AppRuntimeConfig&{connected:boolean}:null;
-      const [csrfResponse,postsResponse,analyticsResponse]=await Promise.all([fetch("/api/security/csrf"),fetch("/api/posts"),fetch("/api/analytics")]);
+      const [csrfResponse,postsResponse,analyticsPayload]=await Promise.all([fetch("/api/security/csrf"),fetch("/api/posts"),fetchAnalyticsData()]);
       if(csrfResponse.ok)setCsrf(((await csrfResponse.json()) as {token:string}).token);
       if(postsResponse.ok){const payload=await postsResponse.json() as PostsPayload;if(payload.posts.length||status?.configured)setContent(payload.posts.map((post)=>({id:post.id,text:post.text,status:post.status.charAt(0).toUpperCase()+post.status.slice(1) as PostStatus,date:post.scheduledAt?new Date(post.scheduledAt).toLocaleString():post.publishedAt?new Date(post.publishedAt).toLocaleString():"—",evergreen:post.evergreen,lastError:post.lastError})))}
-      if(analyticsResponse.ok){const analyticsPayload=await analyticsResponse.json() as AnalyticsData;if(analyticsPayload.source!=="empty")setAnalytics(analyticsPayload)}
-      if(status){setConnected(Boolean(status.connected));setRuntimeConfig(status);if(status.connected){const response=await fetch("/api/x/sync");if(response.ok){const payload=await response.json() as SyncPayload;setAccount(payload.account);setOpportunityData(payload.opportunities);setSignalData(payload.ideas);setDataSource("live");setLastSync(payload.syncedAt)}}}
+      if(analyticsPayload&&analyticsPayload.source!=="empty")setAnalytics(analyticsPayload);
+      if(status){setConnected(Boolean(status.connected));setRuntimeConfig(status);if(status.connected){const response=await fetch("/api/x/sync");if(response.ok){const payload=await response.json() as SyncPayload;setAccount(payload.account);setOpportunityData(payload.opportunities);setSignalData(payload.ideas);setDataSource("live");setLastSync(payload.syncedAt);const refreshedAnalytics=await fetchAnalyticsData();if(refreshedAnalytics)setAnalytics(refreshedAnalytics)}}}
     })();
   }, []);
 
   const loadPosts=async()=>{const response=await fetch("/api/posts");if(!response.ok)return;const payload=await response.json() as PostsPayload;setContent(payload.posts.map((post)=>({id:post.id,text:post.text,status:post.status.charAt(0).toUpperCase()+post.status.slice(1) as PostStatus,date:post.scheduledAt?new Date(post.scheduledAt).toLocaleString():post.publishedAt?new Date(post.publishedAt).toLocaleString():"—",evergreen:post.evergreen,lastError:post.lastError})))};
-  const loadAnalytics=async()=>{const response=await fetch("/api/analytics");if(response.ok)setAnalytics(await response.json() as AnalyticsData)};
+  const loadAnalytics=async()=>{const payload=await fetchAnalyticsData();if(payload)setAnalytics(payload)};
   const savePost=async(input:SavePostInput)=>{const response=await fetch("/api/posts",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify(input)});if(response.ok){await loadPosts();return true}return false};
   const publishPost=async(id:string|number)=>{const response=await fetch(`/api/posts/${id}/publish`,{method:"POST",headers:{"X-CSRF-Token":csrf}});await loadPosts();if(response.ok)await loadAnalytics();return response.ok};
   const sendFeedback=async(type:"idea"|"reply",id:string,vote:number,context:unknown)=>{await fetch("/api/feedback",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify({targetType:type,targetId:id,vote,context})})};
@@ -363,9 +365,15 @@ export default function HomePage() {
 
             <section className="overview-grid">
               <article className="panel growth-panel">
-                <div className="panel-header"><div><span className="eyebrow">AUDIENCE</span><h2>Follower growth</h2></div><div className="range-tabs">{["7D","28D","90D","1Y"].map((item) => <button className={range === item ? "selected" : ""} key={item} onClick={() => setRange(item)}>{item}</button>)}</div></div>
-                <div className="chart-summary"><strong>12,842</strong><span><TrendingUp size={13}/> +634 this period</span></div>
-                <GrowthChart range={range}/>
+                {dataSource === "live" && account ? <>
+                  <div className="panel-header"><div><span className="eyebrow">AUDIENCE</span><h2>Current audience</h2></div><DataBadge source="live"/></div>
+                  <div className="chart-summary"><strong>{account.followersCount?.toLocaleString() ?? "—"}</strong><span><Check size={13}/> Synced from X</span></div>
+                  <div className="live-audience-state"><Users size={24}/><strong>Follower history is not available yet</strong><p>OpenX needs multiple audience snapshots before it can calculate and chart follower growth.</p></div>
+                </> : <>
+                  <div className="panel-header"><div><span className="eyebrow">AUDIENCE</span><h2>Follower growth</h2></div><div className="range-tabs">{["7D","28D","90D","1Y"].map((item) => <button className={range === item ? "selected" : ""} key={item} onClick={() => setRange(item)}>{item}</button>)}</div></div>
+                  <div className="chart-summary"><strong>12,842</strong><span><TrendingUp size={13}/> +634 this period</span></div>
+                  <GrowthChart range={range}/>
+                </>}
               </article>
 
               <article className="panel signals-panel">
@@ -413,7 +421,7 @@ function ScheduleView({ items, onCreate }: { items: ContentItem[]; onCreate: () 
 }
 
 function AnalyticsView({ range, setRange, data }: { range: string; setRange: (v: string) => void; data?:AnalyticsData }) {
-  if(!data||data.source==="empty")return <section className="panel full-panel empty-analytics"><BarChart3 size={28}/><h2>No live analytics yet</h2><p>Connect X and publish or sync posts. OpenX stores periodic snapshots because private X metrics are time-limited.</p></section>;
+  if(!data||data.source==="empty")return <section className="panel full-panel empty-analytics"><BarChart3 size={28}/><h2>No OpenX content analytics yet</h2><p>Synced account totals appear in Overview. Topic, format and hook breakdowns start after OpenX publishes a post and can link its X metrics to that content.</p></section>;
   const cards=[{label:"Impressions",value:data.totals.impressions.toLocaleString(),icon:CircleGauge},{label:"Likes",value:data.totals.likes.toLocaleString(),icon:Activity},{label:"Replies",value:data.totals.replies.toLocaleString(),icon:MessageCircle},{label:"Reposts",value:data.totals.reposts.toLocaleString(),icon:TrendingUp}];
   const breakdown=(title:string,rows:AnalyticsData["byTopic"])=><section className="panel analytics-breakdown"><div className="panel-header"><div><span className="eyebrow">CONTENT INTELLIGENCE</span><h2>{title}</h2></div></div>{rows.slice(0,6).map((row)=><div className="breakdown-row" key={row.label}><span>{row.label}</span><i><b style={{width:`${Math.max(8,100*(row.impressions/(rows[0]?.impressions||1)))}%`}}/></i><strong>{row.impressions.toLocaleString()}</strong></div>)}</section>;
   return <div className="analytics-layout"><section className="metrics-row">{cards.map(({label,value,icon:Icon})=><article className="metric-card" key={label}><div><span>{label}</span><strong>{value}</strong><small><Check size={12}/>LIVE<em>from X snapshots</em></small></div><div className="metric-icon"><Icon size={18}/></div></article>)}</section><section className="panel full-panel"><div className="panel-header"><div><span className="eyebrow">PERFORMANCE</span><h2>Growth over time</h2></div><div className="range-tabs">{["7D","28D","90D","1Y"].map((item)=><button className={range===item?"selected":""} key={item} onClick={()=>setRange(item)}>{item}</button>)}</div></div><div className="large-chart"><GrowthChart range={range}/></div></section><div className="analytics-grid">{breakdown("Performance by topic",data.byTopic)}{breakdown("Performance by format",data.byFormat)}{breakdown("Best hooks",data.byHook)}{breakdown("Best posting times",data.byHour)}</div></div>;

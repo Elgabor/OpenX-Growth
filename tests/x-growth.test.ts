@@ -31,3 +31,16 @@ test("ideas come from feed topics missing from recent authored posts", () => {
   assert.ok(ideas.every((idea) => idea.hook && idea.rationale));
   assert.ok(ideas.every((idea) => idea.pillar));
 });
+
+test("ideas ignore generic conversational words from a real home timeline", () => {
+  const feed = [
+    {id:"1",text:"Good work on agentic systems and open-source evaluation"},
+    {id:"2",text:"Will this agentic workflow make good products easier to evaluate?"},
+    {id:"3",text:"Agentic tooling will improve how open-source teams work"},
+  ];
+  const ideas = generateIdeas(feed,[]);
+  const topics = ideas.map((idea)=>idea.topic.toLowerCase());
+
+  assert.ok(topics.includes("agentic"));
+  assert.ok(topics.every((topic)=>!["good","work","will"].includes(topic)));
+});
