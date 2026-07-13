@@ -6,7 +6,11 @@ OpenX Growth is early alpha. Security fixes are applied to the latest commit on 
 
 ## Reporting a vulnerability
 
-Do not open a public issue for suspected vulnerabilities or leaked credentials. Use GitHub's **Report a vulnerability** private security-advisory flow for this repository. Include impact, affected route or commit, reproduction steps and a minimal proof of concept.
+Do not open a public issue for suspected vulnerabilities or leaked credentials.
+
+Preferred: use GitHub's private **Report a vulnerability** security-advisory flow for this repository. Include impact, affected route or commit, reproduction steps and a minimal proof of concept.
+
+Maintainers: ensure GitHub **Private vulnerability reporting** is enabled in repository settings so external reporters can access the private flow.
 
 If credentials may have been exposed, revoke them immediately at the provider before reporting:
 
