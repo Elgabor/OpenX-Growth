@@ -3,11 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "../../../../db";
 import { feedback, posts } from "../../../../db/schema";
 import { appConfig } from "../../../../lib/config";
-import { hasApiAuth, hasAppAccess, configuredInstanceResponse, requireCsrf } from "../../../../lib/security";
+import { authorizeBrowserOrApiMutation } from "../../../../lib/security";
 
 export async function POST(request:NextRequest){
-  const blocked=configuredInstanceResponse(); if(blocked)return blocked;
-  const api=hasApiAuth(request);if(!await hasAppAccess(request)&&!api)return NextResponse.json({error:"UNAUTHORIZED"},{status:401});if(!api)try{requireCsrf(request)}catch{return NextResponse.json({error:"INVALID_CSRF"},{status:403})}
+  const denied=await authorizeBrowserOrApiMutation(request);if(denied)return denied;
   const config=appConfig();const input=await request.json() as {kind?:"idea"|"post"|"thread"|"reply"|"rewrite";prompt?:string;context?:string};if(!input.kind||!input.prompt)return NextResponse.json({error:"INVALID_REQUEST"},{status:400});
   if(!config.aiApiKey)return NextResponse.json({error:"AI_NOT_CONFIGURED"},{status:503});if(!config.xAiContentApproved)return NextResponse.json({error:"X_AI_CONTENT_APPROVAL_REQUIRED"},{status:403});if(input.kind==="reply"&&!config.xAiRepliesApproved)return NextResponse.json({error:"X_AI_REPLY_APPROVAL_REQUIRED"},{status:403});
   const [history,votes]=await Promise.all([getDb().select({text:posts.text}).from(posts).orderBy(desc(posts.createdAt)).limit(30),getDb().select().from(feedback).orderBy(desc(feedback.createdAt)).limit(50)]);

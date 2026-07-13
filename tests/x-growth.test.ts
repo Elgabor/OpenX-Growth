@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generateIdeas, rankReplyOpportunities } from "../lib/x-growth.ts";
+import { filterNetworkPosts, generateIdeas, rankReplyOpportunities, tokenizeText } from "../lib/x-growth.ts";
 
 test("reply opportunities are ranked and retain X post identity", () => {
   const users = [
@@ -16,7 +16,9 @@ test("reply opportunities are ranked and retain X post identity", () => {
   assert.equal(ranked[0].handle,"@fast");
   assert.equal(ranked[0].reach,"70K");
   assert.equal(ranked[0].suggestedReply,"");
-  assert.ok(ranked[0].reason.includes("followers"));
+  assert.match(ranked[0].reason,/freshness|engagement velocity|author reach/);
+  assert.equal(ranked[0].reachProvenance.source,"live");
+  assert.equal(ranked[0].relevanceProvenance.source,"derived");
 });
 
 test("ideas come from feed topics missing from recent authored posts", () => {
@@ -30,6 +32,8 @@ test("ideas come from feed topics missing from recent authored posts", () => {
   assert.ok(ideas.some((idea) => idea.topic.toLowerCase().includes("agentic")));
   assert.ok(ideas.every((idea) => idea.hook && idea.rationale));
   assert.ok(ideas.every((idea) => idea.pillar));
+  assert.ok(ideas.every((idea) => idea.bars === undefined));
+  assert.ok(ideas.every((idea) => idea.scoreProvenance.source === "derived"));
 });
 
 test("ideas ignore generic conversational words from a real home timeline", () => {
@@ -43,4 +47,32 @@ test("ideas ignore generic conversational words from a real home timeline", () =
 
   assert.ok(topics.includes("agentic"));
   assert.ok(topics.every((topic)=>!["good","work","will"].includes(topic)));
+});
+
+test("idea tokens remove common sentence scaffolding but preserve uppercase AI", () => {
+  assert.deepEqual(tokenizeText("We all are building AI tools, and I am testing an AI workflow"),["ai","tools","testing","ai","workflow"]);
+  const feed=[
+    {id:"1",text:"We all are building AI evaluation tools"},
+    {id:"2",text:"We are testing AI evaluation systems"},
+    {id:"3",text:"All AI evaluation teams need evidence"},
+  ];
+  const topics=generateIdeas(feed,[]).map((idea)=>idea.topic);
+  assert.ok(topics.some((topic)=>topic.includes("AI")));
+  assert.ok(topics.every((topic)=>!["We","All","Am","An"].includes(topic)));
+});
+
+test("idea tokens reject social scaffolding and unrecognized uppercase markers", () => {
+  assert.deepEqual(
+    tokenizeText("RT We are building a new post without evidence. Use AI tools instead."),
+    ["evidence","ai","tools","instead"],
+  );
+  assert.deepEqual(tokenizeText("API e AI per una nuova startup senza scraping"),["api","ai","startup","scraping"]);
+});
+
+test("network discovery excludes posts authored by the connected account", () => {
+  const feed=[
+    {id:"mine",author_id:"owner",text:"My own post"},
+    {id:"theirs",author_id:"followed",text:"A network post"},
+  ];
+  assert.deepEqual(filterNetworkPosts(feed,"owner").map((post)=>post.id),["theirs"]);
 });

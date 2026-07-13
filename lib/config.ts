@@ -26,7 +26,8 @@ export const appConfig = () => ({
   xAiContentApproved: env("X_AI_CONTENT_APPROVED","false") === "true",
   xAiRepliesApproved: env("X_AI_REPLIES_APPROVED","false") === "true",
   evergreenEnabled: env("ENABLE_EVERGREEN","false") === "true",
-  maxDailyReads: Number(env("MAX_DAILY_X_READS","500")),
+  maxDailyResources: Number(env("MAX_DAILY_X_RESOURCES",env("MAX_DAILY_X_READS","500"))),
+  maxDailyReads: Number(env("MAX_DAILY_X_RESOURCES",env("MAX_DAILY_X_READS","500"))),
   maxDailyWrites: Number(env("MAX_DAILY_X_WRITES","50")),
   syncTtlSeconds: Number(env("SYNC_TTL_SECONDS","900")),
 });
@@ -36,12 +37,72 @@ export function instanceConfigured() {
   return Boolean(config.xClientId && config.sessionSecret);
 }
 
+export type DeploymentPosture="demo"|"misconfigured"|"protected";
+
+export type XConfigurationSummary={
+  xClientIdConfigured:boolean;
+  xClientSecretConfigured:boolean;
+  sessionSecretConfigured:boolean;
+  appUrlConfigured:boolean;
+  appAccessTokenConfigured:boolean;
+  cronSecretConfigured:boolean;
+  apiTokenConfigured:boolean;
+};
+
+export type AiConfigurationSummary={
+  provider:"OpenRouter"|"OpenAI"|"Custom OpenAI-compatible";
+  model:string;
+  apiKeyConfigured:boolean;
+  contentApproved:boolean;
+  repliesApproved:boolean;
+};
+
+export function deploymentPosture():DeploymentPosture {
+  const config=appConfig();
+  if(config.appAccessToken)return "protected";
+  return instanceConfigured()?"misconfigured":"demo";
+}
+
+export function aiProviderLabel(baseUrl:string):AiConfigurationSummary["provider"] {
+  try {
+    const hostname=new URL(baseUrl).hostname.toLowerCase();
+    if(hostname==="openrouter.ai"||hostname.endsWith(".openrouter.ai"))return "OpenRouter";
+    if(hostname==="openai.com"||hostname.endsWith(".openai.com"))return "OpenAI";
+  } catch {}
+  return "Custom OpenAI-compatible";
+}
+
+export function protectedConfigSummary():{xConfiguration?:XConfigurationSummary;aiConfiguration?:AiConfigurationSummary} {
+  if(deploymentPosture()!=="protected")return {};
+  const config=appConfig();
+  return {
+    xConfiguration:{
+      xClientIdConfigured:Boolean(config.xClientId),
+      xClientSecretConfigured:Boolean(config.xClientSecret),
+      sessionSecretConfigured:Boolean(config.sessionSecret),
+      appUrlConfigured:Boolean(config.appUrl),
+      appAccessTokenConfigured:Boolean(config.appAccessToken),
+      cronSecretConfigured:Boolean(config.cronSecret),
+      apiTokenConfigured:Boolean(config.apiToken),
+    },
+    aiConfiguration:{
+      provider:aiProviderLabel(config.aiBaseUrl),
+      model:config.aiModel,
+      apiKeyConfigured:Boolean(config.aiApiKey),
+      contentApproved:config.xAiContentApproved,
+      repliesApproved:config.xAiRepliesApproved,
+    },
+  };
+}
+
 export function publicConfig() {
   const config = appConfig();
+  const posture=deploymentPosture();
   return {
     configured:instanceConfigured(),
-    demoMode:!config.appAccessToken,
-    accessProtected:Boolean(config.appAccessToken),
+    demoMode:posture==="demo",
+    accessProtected:posture==="protected",
+    configurationError:posture==="misconfigured"?"APP_ACCESS_TOKEN_REQUIRED":null,
     aiConfigured:Boolean(config.aiApiKey),
     aiContentApproved:config.xAiContentApproved,
     aiRepliesApproved:config.xAiRepliesApproved,

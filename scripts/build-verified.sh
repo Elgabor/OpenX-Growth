@@ -7,6 +7,10 @@ if [[ "${SITES_ENV_READY:-}" != "1" ]]; then
   exec "${script_dir}/sites-env.sh" -- "$0" "$@"
 fi
 
+export OPENX_DISABLE_ENV_FILES=1
+export CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false
+export CLOUDFLARE_INCLUDE_PROCESS_ENV=false
+
 command -v timeout >/dev/null || {
   echo "build-verified.sh requires GNU timeout." >&2
   exit 69
