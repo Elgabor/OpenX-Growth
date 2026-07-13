@@ -263,18 +263,13 @@ npm run release:check
 
 Pull requests must pass build, lint, unit/integration tests and secret scanning. The privacy audit checks tracked files for common credentials, personal email addresses, deployment identities and generated instance hostnames. CI additionally scans full Git history with Gitleaks.
 
-The HTTP E2E suites are explicit because they require running instances. Use an isolated local database, never a production deployment:
+The hermetic HTTP E2E runner starts isolated local instances, applies migrations to temporary D1 state and injects deterministic X fixtures. It does not load local environment files or call live X/AI services:
 
 ```bash
-# Public, unconfigured demo instance on http://localhost:5175
-npm run test:e2e:demo
-
-# Configured test instance without an X OAuth session on http://localhost:5176
-# This suite creates only local draft and feedback fixtures.
-npm run test:e2e:configured
+npm run test:e2e
 ```
 
-Set `E2E_BASE_URL` to override either default URL.
+The lower-level `test:e2e:demo`, `test:e2e:misconfigured` and `test:e2e:configured` commands remain available for an already-running isolated test instance. Set `E2E_BASE_URL` to override their default local URL; never point them at production.
 
 ## Privacy and data deletion
 
