@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exchangeAuthorizationCode } from "../../../../../lib/x-oauth";
-import { cookieName, OAUTH_COOKIE, readCookie, setXSession, unseal } from "../../../../../lib/security";
+import { configuredAccessGateResponse, cookieName, OAUTH_COOKIE, readCookie, setXSession, unseal } from "../../../../../lib/security";
 import { storeXSession } from "../../../../../lib/session-store";
 
 type OAuthState = {verifier:string;state:string;clientId:string;redirectUri:string};
 
 export async function GET(request:NextRequest) {
+  const blocked=configuredAccessGateResponse();if(blocked)return blocked;
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
   const oauth = await unseal<OAuthState>(readCookie(request,OAUTH_COOKIE));

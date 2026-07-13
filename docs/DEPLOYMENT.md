@@ -9,6 +9,8 @@
 7. Configure a scheduler only after a manual draft and publish test succeeds.
 8. Leave AI and evergreen flags false until the associated policy review is complete.
 
+`APP_ACCESS_TOKEN` may be omitted only for an unconfigured, write-disabled demo. A configured instance without it fails closed; `OPENX_API_TOKEN` and `CRON_SECRET` cannot bypass that deployment gate or authenticate browser routes.
+
 ## Release validation
 
 ```bash
