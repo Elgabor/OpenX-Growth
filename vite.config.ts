@@ -35,6 +35,16 @@ const localBindingConfig = {
     : [],
 };
 
+const localWorkerConfig = existsSync(new URL("./wrangler.jsonc", import.meta.url))
+  ? localBindingConfig
+  : {
+      ...localBindingConfig,
+      // Vinext's SSR runtime imports Node APIs. A checked-out project has no
+      // instance config yet, so it needs the same compatibility mode as deploy.
+      compatibility_date: "2026-05-22",
+      compatibility_flags: ["nodejs_compat"],
+    };
+
 export default defineConfig(async () => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
@@ -59,7 +69,7 @@ export default defineConfig(async () => {
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
-        config: localBindingConfig,
+        config: localWorkerConfig,
       }),
     ],
   };
