@@ -13,9 +13,19 @@ const { d1, r2 } = hostingConfig;
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
+const disableEnvFiles=process.env.OPENX_E2E==="1"||process.env.OPENX_DISABLE_ENV_FILES==="1";
+const e2eBindingNames=[
+  "APP_URL","X_CLIENT_ID","SESSION_SECRET","APP_ACCESS_TOKEN","OPENX_API_TOKEN","CRON_SECRET",
+  "AI_API_KEY","X_AI_CONTENT_APPROVED","X_AI_REPLIES_APPROVED",
+  "MAX_DAILY_X_RESOURCES","MAX_DAILY_X_WRITES","OPENX_E2E","OPENX_E2E_X_FIXTURE",
+] as const;
+const e2eVars=process.env.OPENX_E2E==="1"
+  ? Object.fromEntries(e2eBindingNames.map((name)=>[name,process.env[name]??""]))
+  : undefined;
 
 const localBindingConfig = {
-  main: "./worker/index.ts",
+  main: process.env.OPENX_E2E==="1" ? "./tests/fixtures/worker.e2e.ts" : "./worker/index.ts",
+  ...(e2eVars?{vars:e2eVars}:{}),
   d1_databases: d1
     ? [
         {
@@ -46,6 +56,7 @@ const localWorkerConfig = existsSync(new URL("./wrangler.jsonc", import.meta.url
     };
 
 export default defineConfig(async () => {
+  const e2eStateDir=process.env.OPENX_E2E_STATE_DIR;
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
   process.env.WRANGLER_WRITE_LOGS ??= "false";
@@ -56,6 +67,7 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    ...(disableEnvFiles?{envFile:false}:{}),
     server: {
       host: "0.0.0.0",
       allowedHosts: ["terminal.local"],
@@ -69,6 +81,7 @@ export default defineConfig(async () => {
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
+        ...(e2eStateDir?{persistState:{path:e2eStateDir}}:{}),
         config: localWorkerConfig,
       }),
     ],

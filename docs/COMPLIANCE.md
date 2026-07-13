@@ -5,14 +5,15 @@ OpenX Growth is software, not a certification service. The operator of each fork
 | Risk | Default control |
 | --- | --- |
 | Credential disclosure | Secrets are environment-only; OAuth tokens are AES-GCM encrypted; exports omit credentials. |
-| Unauthorized access | Production fails closed without `APP_ACCESS_TOKEN`; API, scheduler and MCP use independent tokens. |
+| Unauthorized access | Only an unconfigured, write-disabled demo may be public. Every configured instance fails closed without `APP_ACCESS_TOKEN`; browser, API/MCP and scheduler authorities remain independent. |
 | Cross-site writes | Browser mutations require a same-origin double-submit CSRF token and SameSite cookies. |
 | Automated replies | No autonomous reply worker or MCP reply tool; every reply requires an explicit user action. |
 | AI-generated content | Disabled unless the relevant X policy approval flag is explicitly enabled. |
 | Spam and repetition | Evergreen is disabled by default and has a minimum interval. |
-| Excess API spend | Sync cache, daily read/write budgets and rate-limit errors. |
+| Excess API spend | Atomic worst-case resource reservations, separate request/resource/write-attempt events, retry-aware reconciliation and rate-limit metadata. Provider-console spend limits remain the external backstop. |
+| Ambiguous publishing | Expiring leases, per-part structured receipts, redacted operational events and a fail-closed `needs_review` state. Manual reconciliation makes no X request and exact-once delivery is not claimed. |
 | Data retention | Feed data is short-lived cache; disconnect and full deletion endpoints are provided. |
-| Hidden data source | UI distinguishes demo, live, generated and persistent records. |
+| Hidden data source | Quantitative UI labels metrics as demo, live, derived or estimate with timestamps; live charts use stored snapshots and show `Insufficient data` instead of decorative values. |
 
 ## Pre-deployment checklist
 

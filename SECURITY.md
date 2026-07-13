@@ -19,15 +19,16 @@ If credentials may have been exposed, revoke them immediately at the provider be
 ## Security model
 
 - This project is intended as a single-owner, self-hosted instance.
-- Production deployments should always set `APP_ACCESS_TOKEN` or sit behind an equivalent identity-aware access proxy.
-- The application fails closed when `APP_ACCESS_TOKEN` is absent; failed login attempts are rate-limited using an encrypted D1 record keyed by a hash of the request source.
+- An unconfigured instance may expose only the public, write-disabled demo. Every instance configured with X credentials must set `APP_ACCESS_TOKEN`.
+- A configured instance fails closed when `APP_ACCESS_TOKEN` is absent, before browser, REST/MCP or scheduler credentials are considered. Failed login attempts are rate-limited using an encrypted D1 record keyed by a hash of the request source.
 - OAuth tokens are encrypted with AES-GCM using a key derived from `SESSION_SECRET` before D1 storage.
 - Browser write requests require same-origin CSRF validation.
 - API and MCP writes require `OPENX_API_TOKEN`.
 - Scheduler requests require `CRON_SECRET`.
+- Browser sessions, REST/MCP bearer tokens and scheduler bearer tokens are separate authorities and are not interchangeable.
 - AI provider keys exist only in server-side environment bindings.
 - The Content Security Policy blocks framing and restricts browser connections to the same origin.
-- X write actions enforce local daily budgets and human review.
+- X calls use atomic daily resource reservations and write-attempt caps. Retries count as separate attempts; provider-console spend limits remain the external backstop.
 
 ## Known boundaries
 
@@ -35,7 +36,7 @@ If credentials may have been exposed, revoke them immediately at the provider be
 - D1 encryption protects token values at the application layer; metadata such as update timestamps remains visible.
 - Self-hosters are responsible for access logs, backups, D1 retention, provider policies and infrastructure patching.
 - Automated security checks reduce risk but do not prove compliance.
-- Exact-once X publishing cannot be guaranteed if a process dies after X accepts a Post but before the local receipt is persisted. Inspect failed records before retrying.
+- Exact-once X publishing cannot be guaranteed if a process dies after X accepts a Post but before the local receipt is persisted. Such records become `needs_review`, are excluded from automatic retries, and require explicit operator reconciliation.
 - The built-in access gate is defense in depth, not a replacement for deployment-platform WAF, rate limiting and identity-aware access controls.
 
 ## Deployment checklist

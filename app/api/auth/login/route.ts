@@ -30,6 +30,7 @@ export async function POST(request:NextRequest) {
   await db.delete(secureStore).where(eq(secureStore.key,key));
   const response=NextResponse.json({ok:true});
   const secure=request.nextUrl.protocol==="https:";
-  response.cookies.set(cookieName(AUTH_COOKIE,secure),await seal({authorized:true}),{httpOnly:true,secure,sameSite:"strict",path:"/",maxAge:2_592_000});
+  const expiresAt=Date.now()+2_592_000_000;
+  response.cookies.set(cookieName(AUTH_COOKIE,secure),await seal({authorized:true,expiresAt}),{httpOnly:true,secure,sameSite:"strict",path:"/",maxAge:2_592_000});
   return response;
 }

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { publicConfig } from "../../../../lib/config";
-import { getXSession, hasAppAccess } from "../../../../lib/security";
+import { deploymentPosture, protectedConfigSummary, publicConfig } from "../../../../lib/config";
+import { authorizeBrowserRead, getXSession } from "../../../../lib/security";
 import { loadXSession } from "../../../../lib/session-store";
 export async function GET(request:NextRequest) {
-  if (!await hasAppAccess(request)) return NextResponse.json({error:"UNAUTHORIZED"},{status:401});
-  return NextResponse.json({connected:Boolean(await getXSession(request) ?? await loadXSession()),...publicConfig()},{headers:{"Cache-Control":"no-store"}});
+  const denied=await authorizeBrowserRead(request);if(denied)return denied;
+  const connected=deploymentPosture()==="demo"?false:Boolean(await getXSession(request)??await loadXSession());
+  return NextResponse.json({connected,...publicConfig(),...protectedConfigSummary()},{headers:{"Cache-Control":"no-store"}});
 }

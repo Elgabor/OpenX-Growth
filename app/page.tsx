@@ -34,10 +34,12 @@ import {
   Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { buildChartCoordinates } from "../lib/chart";
+import { decideOnboarding, isWorkspaceBlocking, ONBOARDING_STORAGE_KEY, resolveWorkspaceState, sanitizeSyncError, syncErrorGuidance, type WorkspaceState } from "../lib/ui-state";
 import type { IdeaSignal, ReplyOpportunity } from "../lib/x-growth";
 
 type View = "Overview" | "Discover" | "Content" | "Schedule" | "Analytics" | "Settings";
-type PostStatus = "Draft" | "Scheduled" | "Publishing" | "Published" | "Failed";
+type PostStatus = "Draft" | "Scheduled" | "Publishing" | "Published" | "Failed" | "Needs review";
 
 type ContentItem = {
   id: number | string;
@@ -51,15 +53,42 @@ type ContentItem = {
 };
 
 type SavePostInput = {text:string;thread:string[];scheduledAt?:number;evergreen:boolean;evergreenIntervalDays:number;generated:boolean;topic?:string;hook?:string};
-type AppRuntimeConfig={configured:boolean;demoMode:boolean;accessProtected:boolean;aiConfigured:boolean;aiContentApproved:boolean;aiRepliesApproved:boolean;evergreenEnabled:boolean;syncTtlSeconds:number};
-type AnalyticsData={source:string;totals:{impressions:number;likes:number;replies:number;reposts:number};byTopic:Array<{label:string;posts:number;impressions:number;engagements:number}>;byFormat:Array<{label:string;posts:number;impressions:number;engagements:number}>;byHook:Array<{label:string;posts:number;impressions:number;engagements:number}>;byHour:Array<{label:string;posts:number;impressions:number;engagements:number}>;usage:{reads:number;writes:number;maxReads:number;maxWrites:number}};
+type XConfigurationSummary={xClientIdConfigured:boolean;xClientSecretConfigured:boolean;sessionSecretConfigured:boolean;appUrlConfigured:boolean;appAccessTokenConfigured:boolean;cronSecretConfigured:boolean;apiTokenConfigured:boolean};
+type AiConfigurationSummary={provider:"OpenRouter"|"OpenAI"|"Custom OpenAI-compatible";model:string;apiKeyConfigured:boolean;contentApproved:boolean;repliesApproved:boolean};
+type AppRuntimeConfig={configured:boolean;demoMode:boolean;accessProtected:boolean;aiConfigured:boolean;aiContentApproved:boolean;aiRepliesApproved:boolean;evergreenEnabled:boolean;syncTtlSeconds:number;xConfiguration?:XConfigurationSummary;aiConfiguration?:AiConfigurationSummary};
+type RuntimeStatus=AppRuntimeConfig&{connected:boolean};
+type ProvenanceSource="demo"|"live"|"derived"|"estimate";
+type Provenance={source:ProvenanceSource;recordedAt:number};
+type Metric<T>={value:T;provenance:Provenance};
+type AnalyticsBreakdown={label:string;posts:number;impressions:number;engagements:number;medianEngagementRate:Metric<number>;provenance:Provenance};
+type AnalyticsData={
+  dataStatus:"available"|"insufficient_data";
+  range:{key:string;startAt:number;endAt:number};
+  derived:{
+    totals:{impressions:Metric<number>;likes:Metric<number>;replies:Metric<number>;reposts:Metric<number>;engagements:Metric<number>;engagementRate:Metric<number>};
+    series:Array<{recordedAt:number;impressions:Metric<number>;engagements:Metric<number>;engagementRate:Metric<number>}>;
+    byTopic:AnalyticsBreakdown[];byFormat:AnalyticsBreakdown[];byHook:AnalyticsBreakdown[];byHour:AnalyticsBreakdown[];
+  };
+  followers:{status:"ready"|"insufficient_data";minimumSamples:number;series:Array<{recordedAt:number;followers:Metric<number>}>};
+  postingTimes:{status:"ready"|"insufficient_data";minimumSamples:number;sampleSize:number;method:string;suggestions:Array<{hour:number;label:string;sampleSize:number;medianEngagementRate:number;provenance:Provenance}>};
+  usage:{requests:number;resources:number;reservedResources:number;writes:number;maxResources:number;maxWrites:number;remainingResources:number;remainingWrites:number;warning:boolean;reads:number;maxReads:number;provenance:Provenance};
+};
 type AccountProfile={id:string;name:string;username:string;profileImageUrl?:string;followersCount?:number};
 type StoredPost={id:string;text:string;status:string;scheduledAt?:number;publishedAt?:number;evergreen?:boolean;lastError?:string};
 type PostsPayload={posts:StoredPost[]};
 type SyncPayload={account:AccountProfile;opportunities:ReplyOpportunity[];ideas:IdeaSignal[];syncedAt:string;error?:string};
 type AiPayload={content?:string|string[];error?:string};
 
-async function fetchAnalyticsData():Promise<AnalyticsData | undefined>{const response=await fetch("/api/analytics");return response.ok?await response.json() as AnalyticsData:undefined}
+const postStatusLabel=(status:string):PostStatus=>status==="needs_review"?"Needs review":`${status.charAt(0).toUpperCase()}${status.slice(1)}` as PostStatus;
+
+async function fetchAnalyticsData(range="28D"):Promise<AnalyticsData | undefined>{const response=await fetch(`/api/analytics?range=${encodeURIComponent(range)}`);return response.ok?await response.json() as AnalyticsData:undefined}
+
+async function fetchXSync(force=false):Promise<SyncPayload>{
+  const response=await fetch(`/api/x/sync${force?"?force=1":""}`);
+  const payload=await response.json() as SyncPayload;
+  if(!response.ok)throw new Error(sanitizeSyncError(payload.error));
+  return payload;
+}
 
 const navItems = [
   { label: "Overview" as View, icon: Home },
@@ -70,18 +99,18 @@ const navItems = [
 ];
 
 const signals: IdeaSignal[] = [
-  { topic: "Open source AI", change: "Demo topic · connect X for live data", score: 92, bars: [4, 7, 9, 12, 14, 13, 10, 8, 9, 11, 14, 16, 18], hook:"Most people misunderstand open source AI. Here is what they miss:", rationale:"Demo idea",pillar:"Industry insight" },
-  { topic: "Build in public", change: "Demo topic · connect X for live data", score: 78, bars: [3, 5, 8, 9, 8, 7, 6, 5, 7, 8, 10, 12, 15], hook:"Building in public is not a content strategy. It is a feedback loop.", rationale:"Demo idea",pillar:"Build in public" },
-  { topic: "AI agents", change: "Demo topic · connect X for live data", score: 65, bars: [4, 8, 6, 10, 7, 9, 8, 6, 9, 12, 10, 11, 15], hook:"AI agents are about to change the size of the average startup team.", rationale:"Demo idea",pillar:"Product thesis" },
-  { topic: "European tech", change: "Demo topic · connect X for live data", score: 54, bars: [3, 4, 5, 7, 6, 8, 7, 9, 8, 10, 11, 12, 13], hook:"Europe does not have a talent problem. It has a distribution problem.", rationale:"Demo idea",pillar:"Industry insight" },
-  { topic: "Founder-led growth", change: "Demo topic · connect X for live data", score: 41, bars: [2, 4, 5, 4, 7, 6, 9, 8, 7, 9, 10, 11, 12], hook:"Founder-led growth works because customers want proximity to conviction.", rationale:"Demo idea",pillar:"Founder lesson" },
+  { topic: "Open source AI", change: "Demo topic · connect X for live data", score: 92, bars: [4, 7, 9, 12, 14, 13, 10, 8, 9, 11, 14, 16, 18], hook:"Most people misunderstand open source AI. Here is what they miss:", rationale:"Demo idea",pillar:"Industry insight",scoreProvenance:{source:"demo",recordedAt:0} },
+  { topic: "Build in public", change: "Demo topic · connect X for live data", score: 78, bars: [3, 5, 8, 9, 8, 7, 6, 5, 7, 8, 10, 12, 15], hook:"Building in public is not a content strategy. It is a feedback loop.", rationale:"Demo idea",pillar:"Build in public",scoreProvenance:{source:"demo",recordedAt:0} },
+  { topic: "AI agents", change: "Demo topic · connect X for live data", score: 65, bars: [4, 8, 6, 10, 7, 9, 8, 6, 9, 12, 10, 11, 15], hook:"AI agents are about to change the size of the average startup team.", rationale:"Demo idea",pillar:"Product thesis",scoreProvenance:{source:"demo",recordedAt:0} },
+  { topic: "European tech", change: "Demo topic · connect X for live data", score: 54, bars: [3, 4, 5, 7, 6, 8, 7, 9, 8, 10, 11, 12, 13], hook:"Europe does not have a talent problem. It has a distribution problem.", rationale:"Demo idea",pillar:"Industry insight",scoreProvenance:{source:"demo",recordedAt:0} },
+  { topic: "Founder-led growth", change: "Demo topic · connect X for live data", score: 41, bars: [2, 4, 5, 4, 7, 6, 9, 8, 7, 9, 10, 11, 12], hook:"Founder-led growth works because customers want proximity to conviction.", rationale:"Demo idea",pillar:"Founder lesson",scoreProvenance:{source:"demo",recordedAt:0} },
 ];
 
 const opportunities: ReplyOpportunity[] = [
-  { id:"demo-1", initials:"SB",name:"Sample Builder",handle:"@samplebuilder",post:"What is one underrated habit that changed how you build products?",reach:"48K",relevance:92,url:"https://x.com",suggestedReply:"",reason:"Demo opportunity · connect X for live ranking" },
-  { id:"demo-2", initials:"OF",name:"Open Founder",handle:"@openfounder",post:"Open source is becoming a distribution advantage, not only a licensing choice.",reach:"32K",relevance:88,url:"https://x.com",suggestedReply:"",reason:"Demo opportunity · connect X for live ranking" },
-  { id:"demo-3", initials:"IP",name:"Indie Product",handle:"@indieproduct",post:"Building in public works best when the feedback changes the product.",reach:"24K",relevance:85,url:"https://x.com",suggestedReply:"",reason:"Demo opportunity · connect X for live ranking" },
-  { id:"demo-4", initials:"SG",name:"SaaS Growth",handle:"@saasgrowth",post:"Founders: what is your most reliable growth loop right now?",reach:"19K",relevance:82,url:"https://x.com",suggestedReply:"",reason:"Demo opportunity · connect X for live ranking" },
+  { id:"demo-1", initials:"SB",name:"Sample Builder",handle:"@samplebuilder",post:"What is one underrated habit that changed how you build products?",reach:"48K",relevance:92,url:"https://x.com",suggestedReply:"",reason:"Demo opportunity · connect X for live ranking",reachProvenance:{source:"demo",recordedAt:0},relevanceProvenance:{source:"demo",recordedAt:0} },
+  { id:"demo-2", initials:"OF",name:"Open Founder",handle:"@openfounder",post:"Open source is becoming a distribution advantage, not only a licensing choice.",reach:"32K",relevance:88,url:"https://x.com",suggestedReply:"",reason:"Demo opportunity · connect X for live ranking",reachProvenance:{source:"demo",recordedAt:0},relevanceProvenance:{source:"demo",recordedAt:0} },
+  { id:"demo-3", initials:"IP",name:"Indie Product",handle:"@indieproduct",post:"Building in public works best when the feedback changes the product.",reach:"24K",relevance:85,url:"https://x.com",suggestedReply:"",reason:"Demo opportunity · connect X for live ranking",reachProvenance:{source:"demo",recordedAt:0},relevanceProvenance:{source:"demo",recordedAt:0} },
+  { id:"demo-4", initials:"SG",name:"SaaS Growth",handle:"@saasgrowth",post:"Founders: what is your most reliable growth loop right now?",reach:"19K",relevance:82,url:"https://x.com",suggestedReply:"",reason:"Demo opportunity · connect X for live ranking",reachProvenance:{source:"demo",recordedAt:0},relevanceProvenance:{source:"demo",recordedAt:0} },
 ];
 
 const initialContent: ContentItem[] = [
@@ -93,17 +122,17 @@ const initialContent: ContentItem[] = [
 ];
 
 const metricData = [
-  { label: "Followers", value: "12,842", delta: "5.2%", icon: Users },
-  { label: "Impressions", value: "1.28M", delta: "18.7%", icon: CircleGauge },
-  { label: "Engagement rate", value: "3.6%", delta: "0.6pp", icon: Activity },
-  { label: "Profile visits", value: "24,731", delta: "12.3%", icon: Target },
+  { label: "Followers", value: "12,842", delta: "5.2%", icon: Users, provenance:undefined },
+  { label: "Impressions", value: "1.28M", delta: "18.7%", icon: CircleGauge, provenance:undefined },
+  { label: "Engagement rate", value: "3.6%", delta: "0.6pp", icon: Activity, provenance:undefined },
+  { label: "Profile visits", value: "24,731", delta: "12.3%", icon: Target, provenance:undefined },
 ];
 
 function Logo() {
   return <div className="brand-mark" aria-label="OpenX Growth logo"><span>O</span><span>X</span></div>;
 }
 
-function GrowthChart({ range }: { range: string }) {
+function DemoGrowthChart({ range }: { range: string }) {
   const paths: Record<string, string> = {
     "7D": "M0 134 C50 130,70 118,105 121 S160 94,205 99 S260 70,315 76 S370 42,430 55 S480 25,530 32 S590 12,640 16",
     "28D": "M0 150 C40 138,65 147,95 128 S145 120,170 110 S220 114,250 96 S300 92,335 68 S390 76,420 54 S470 58,500 37 S555 48,590 23 S620 25,640 14",
@@ -124,6 +153,13 @@ function GrowthChart({ range }: { range: string }) {
       <div className="chart-x"><span>Jun 14</span><span>Jun 21</span><span>Jun 28</span><span>Jul 5</span><span>Today</span></div>
     </div>
   );
+}
+
+function DataSeriesChart({points,label}:{points:Array<{recordedAt:number;value:number}>;label:string}) {
+  if(points.length<2)return <div className="live-audience-state"><CircleGauge size={24}/><strong>Insufficient data</strong><p>At least two snapshots in this date range are required to draw {label.toLowerCase()}.</p></div>;
+  const values=points.map((point)=>point.value),minimum=Math.min(...values),maximum=Math.max(...values);
+  const coordinates=buildChartCoordinates(values);
+  return <div className="chart-wrap"><div className="chart-y"><span>{maximum.toLocaleString()}</span><span>{minimum.toLocaleString()}</span></div><svg className="growth-chart" viewBox="0 0 640 180" preserveAspectRatio="none" role="img" aria-label={label}>{[20,55,90,125,160].map((y)=><line key={y} x1="0" y1={y} x2="640" y2={y} className="grid-line"/>)}<polyline points={coordinates} className="growth-line" fill="none"/></svg><div className="chart-x"><span>{new Date(points[0].recordedAt).toLocaleDateString()}</span><span>{new Date(points.at(-1)!.recordedAt).toLocaleDateString()}</span></div></div>;
 }
 
 function Composer({ onClose, onSave, initialText, csrf, evergreenEnabled }: { onClose: () => void; onSave: (post:SavePostInput) => Promise<boolean>; initialText?: string; csrf:string;evergreenEnabled:boolean }) {
@@ -183,10 +219,10 @@ function EnvVarRow({ name, required, description, example }: { name: string; req
     <div className="env-var-row">
       <div className="env-var-head">
         <code>{name}</code>
-        <b className={required ? "" : "optional"}>{required ? "Required" : "Optional"}</b>
+        <b className="schema">Schema: {required ? "required" : "optional"}</b>
       </div>
       <p>{description}</p>
-      {example && <div className="copy-code"><code>{example}</code></div>}
+      {example && <div className="copy-code example-code"><small>EXAMPLE</small><code>{example}</code></div>}
     </div>
   );
 }
@@ -212,7 +248,7 @@ function SetupGuide({ onClose, onGoToSettings }: { onClose: () => void; onGoToSe
   const [origin] = useState(() => (typeof window === "undefined" ? "https://your-domain.com" : window.location.origin));
   const callback = `${origin}/api/x/oauth/callback`;
   const finish = () => {
-    localStorage.setItem("openx-onboarding-complete", "true");
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
     onGoToSettings();
   };
   return <div className="modal-backdrop onboarding-backdrop">
@@ -225,7 +261,7 @@ function SetupGuide({ onClose, onGoToSettings }: { onClose: () => void; onGoToSe
       </aside>
       <div className="setup-content">
         <header><span className="step-count">{step+1} / {apiSetupSteps.length}</span><button className="icon-btn" onClick={onClose} aria-label="Close setup"><X size={18}/></button></header>
-        {step === 0 && <div className="setup-step"><div className="step-icon"><Github size={23}/></div><span className="eyebrow">SELF-HOSTED FIRST</span><h1>Fork and install</h1><p className="lead">Each installation owns its code, database, X usage and secrets. No shared OpenX service receives your credentials.</p><div className="instruction-list"><div><b>1</b><p><strong>Fork the repository</strong><span>Keep your fork private until environment variables are configured.</span></p></div><div><b>2</b><p><strong>Install dependencies</strong><span><code>npm ci</code> then copy <code>.env.example</code> to <code>.env.local</code> (local) or set secrets on your host.</span></p></div><div><b>3</b><p><strong>Generate secrets</strong><span><code>openssl rand -base64 48</code> for SESSION_SECRET. APP_ACCESS_TOKEN is optional for demo mode.</span></p></div><div><b>4</b><p><strong>Migrate the database</strong><span><code>npm run db:migrate:local</code> for dev, <code>db:migrate:remote</code> after creating D1 in production.</span></p></div></div><a className="external-action" href="https://github.com/dg996/OpenX-Growth/fork" target="_blank" rel="noreferrer">Fork on GitHub <ArrowUpRight size={15}/></a></div>}
+        {step === 0 && <div className="setup-step"><div className="step-icon"><Github size={23}/></div><span className="eyebrow">SELF-HOSTED FIRST</span><h1>Fork and install</h1><p className="lead">Each installation owns its code, database, X usage and secrets. No shared OpenX service receives your credentials.</p><div className="instruction-list"><div><b>1</b><p><strong>Fork the repository</strong><span>Keep your fork private until environment variables are configured.</span></p></div><div><b>2</b><p><strong>Install dependencies</strong><span><code>npm ci</code> then copy <code>.env.example</code> to <code>.env.local</code> (local) or set secrets on your host.</span></p></div><div><b>3</b><p><strong>Generate secrets</strong><span><code>openssl rand -base64 48</code> for SESSION_SECRET and a separate APP_ACCESS_TOKEN. Only an unconfigured, write-disabled demo may omit the access token.</span></p></div><div><b>4</b><p><strong>Migrate the database</strong><span><code>npm run db:migrate:local</code> for dev, <code>db:migrate:remote</code> after creating D1 in production.</span></p></div></div><a className="external-action" href="https://github.com/dg996/OpenX-Growth/fork" target="_blank" rel="noreferrer">Fork on GitHub <ArrowUpRight size={15}/></a></div>}
         {step === 1 && <div className="setup-step"><div className="step-icon"><Code2 size={23}/></div><span className="eyebrow">X DEVELOPER CONSOLE</span><h1>Create your X application</h1><p className="lead">You never paste an X access token manually. OpenX uses OAuth 2.0 + PKCE and stores encrypted tokens after you approve in the browser.</p><div className="instruction-list"><div><b>1</b><p><strong>Open the X Developer Console</strong><span>Create a project and a dedicated app named e.g. “OpenX Growth”.</span></p></div><div><b>2</b><p><strong>Enable OAuth 2.0</strong><span>Under User authentication settings, turn on OAuth 2.0.</span></p></div><div><b>3</b><p><strong>App type: Web App / Single Page App</strong><span>Public clients use PKCE and usually do not need X_CLIENT_SECRET.</span></p></div><div><b>4</b><p><strong>Set permissions to Read and Write</strong><span>Required for sync, publishing and replies.</span></p></div><div><b>5</b><p><strong>Copy the OAuth 2.0 Client ID</strong><span>Paste it into <code>X_CLIENT_ID</code> in your server environment — never in the browser.</span></p></div></div><a className="external-action" href={X_DEV_CONSOLE} target="_blank" rel="noreferrer">Open X Developer Console <ArrowUpRight size={15}/></a><div className="security-note"><Settings size={16}/><p><strong>Dedicated app recommended.</strong><span>Isolates permissions, billing and revocation from your other X integrations.</span></p></div></div>}
         {step === 2 && <div className="setup-step"><div className="step-icon"><Settings size={23}/></div><span className="eyebrow">ENVIRONMENT</span><h1>Register URLs and set secrets</h1><p className="lead">Add these values to <code>.env.local</code> (dev) or your host&apos;s secret manager (production). Restart the server after changes.</p><div className="config-grid"><label className="wide">Website URL<strong>{origin}</strong><small>Set the same value as <code>APP_URL</code> in your environment.</small></label><label className="wide">Callback / Redirect URI<div className="copy-code"><code>{callback}</code><button onClick={()=>void navigator.clipboard.writeText(callback)} aria-label="Copy callback URL"><Link2 size={14}/></button></div><small>Paste this exact URL into the X app OAuth settings. Must match character-for-character.</small></label></div><div className="credential-map"><div><span>ENV VAR</span><strong>X_CLIENT_ID</strong><Link2 size={14}/><span>FROM X</span><strong>OAuth 2.0 Client ID</strong></div><div><span>ENV VAR</span><strong>SESSION_SECRET</strong><Zap size={14}/><span>GENERATE</span><strong>openssl rand -base64 48</strong></div><div><span>ENV VAR</span><strong>APP_URL</strong><Link2 size={14}/><span>YOUR HOST</span><strong>{origin}</strong></div><div><span>ENV VAR</span><strong>CRON_SECRET</strong><Zap size={14}/><span>GENERATE</span><strong>openssl rand -base64 32</strong></div></div><div className="scope-box"><strong>OAuth scopes OpenX requests</strong><div><code>tweet.read</code><code>tweet.write</code><code>users.read</code><code>offline.access</code></div><p><code>offline.access</code> provides a refresh token so sync and publishing keep working without re-login.</p></div></div>}
         {step === 3 && <div className="setup-step"><div className="step-icon"><Link2 size={23}/></div><span className="eyebrow">AUTHORIZE</span><h1>Connect your X account</h1><p className="lead">After env vars are set and the server restarted, open Settings and click <strong>Continue with X</strong>. You will be redirected to X, review permissions, then returned here automatically.</p><div className="instruction-list"><div><b>1</b><p><strong>Click Continue with X</strong><span>Starts OAuth at <code>/api/x/oauth/start</code> with PKCE.</span></p></div><div><b>2</b><p><strong>Approve on X</strong><span>X redirects to <code>{callback}</code> with a one-time authorization code.</span></p></div><div><b>3</b><p><strong>Tokens stored encrypted</strong><span>Access and refresh tokens are AES-GCM sealed with SESSION_SECRET in your D1 database.</span></p></div><div><b>4</b><p><strong>Go to Discover → Sync from X</strong><span>Live ideas, reply opportunities and analytics replace demo data.</span></p></div></div><div className="security-note"><Zap size={16}/><p><strong>No manual token entry.</strong><span>You do not paste bearer tokens into OpenX. Disconnect in Settings revokes the stored session.</span></p></div><button className="primary-btn finish-setup" onClick={finish}>Open Settings <ArrowUpRight size={15}/></button></div>}
@@ -235,23 +271,39 @@ function SetupGuide({ onClose, onGoToSettings }: { onClose: () => void; onGoToSe
   </div>;
 }
 
+function WorkspaceStatePanel({state,onSettings}:{state:"loading"|"configured-disconnected";onSettings:()=>void}) {
+  const content={
+    loading:{title:"Loading workspace",body:"Checking the protected configuration and X connection before showing data."},
+    "configured-disconnected":{title:"Connect X to continue",body:"This instance is configured, but no X account is currently authorized."},
+  }[state];
+  return <section className="panel full-panel workspace-state" role="status"><CircleGauge size={28}/><h2>{content.title}</h2><p>{content.body}</p><div>{state==="configured-disconnected"&&<button className="primary-btn" onClick={onSettings}>Open Settings</button>}</div></section>;
+}
+
+function WorkspaceSyncNotice({state,error,onRetry,onSettings}:{state:WorkspaceState;error:string;onRetry:()=>void;onSettings:()=>void}) {
+  if(state==="unconfigured-demo"||state==="live"||isWorkspaceBlocking(state))return null;
+  if(state==="connected-syncing"||state==="live-refreshing")return <section className="workspace-sync-notice" role="status"><CircleGauge size={17}/><div><strong>{state==="live-refreshing"?"Refreshing X data":"First X sync in progress"}</strong><span>{state==="live-refreshing"?"Existing verified data stays available while the read-only refresh runs.":"Local features stay available while OpenX loads the first verified snapshots."}</span></div></section>;
+  if(state==="connected-insufficient")return <section className="workspace-sync-notice" role="status"><CircleGauge size={17}/><div><strong>No verified X data yet</strong><span>Drafts and schedules remain available. Run a read-only sync to populate discovery and analytics.</span></div><button className="outline-btn" onClick={onRetry}>Sync now</button></section>;
+  const guidance=syncErrorGuidance(error);
+  return <section className="workspace-sync-notice error" role="alert"><CircleGauge size={17}/><div><strong>{guidance.title}</strong><span>{guidance.body}</span></div>{guidance.retryable&&<button className="outline-btn" onClick={onRetry}>Retry sync</button>}<button className="outline-btn" onClick={onSettings}>Open Settings</button></section>;
+}
+
 export default function HomePage() {
   const [view, setView] = useState<View>("Overview");
   const [range, setRange] = useState("28D");
   const [search, setSearch] = useState("");
   const [composer, setComposer] = useState(false);
   const [composerSeed, setComposerSeed] = useState<string>();
-  const [content, setContent] = useState(initialContent);
+  const [content, setContent] = useState<ContentItem[]>([]);
   const [contentFilter, setContentFilter] = useState("All");
   const [connected, setConnected] = useState(false);
+  const [statusLoaded,setStatusLoaded]=useState(false);
   const [setupGuide, setSetupGuide] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [unread, setUnread] = useState(3);
-  const [opportunityData, setOpportunityData] = useState<ReplyOpportunity[]>(opportunities);
-  const [signalData, setSignalData] = useState<IdeaSignal[]>(signals);
-  const [dataSource, setDataSource] = useState<"demo"|"live">("demo");
+  const [opportunityData, setOpportunityData] = useState<ReplyOpportunity[]>([]);
+  const [signalData, setSignalData] = useState<IdeaSignal[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState("");
   const [lastSync, setLastSync] = useState<string>();
@@ -267,7 +319,6 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional post-mount read
     setTheme(preferredTheme);
     document.documentElement.dataset.theme = preferredTheme;
-    setSetupGuide(localStorage.getItem("openx-onboarding-complete") !== "true");
     setPreferencesReady(true);
   }, []);
   useEffect(() => {
@@ -278,17 +329,34 @@ export default function HomePage() {
     void (async()=>{
       const statusResponse=await fetch("/api/x/status");
       if(statusResponse.status===401){window.location.href="/login";return}
-      const status=statusResponse.ok?await statusResponse.json() as AppRuntimeConfig&{connected:boolean}:null;
-      const [csrfResponse,postsResponse,analyticsPayload]=await Promise.all([fetch("/api/security/csrf"),fetch("/api/posts"),fetchAnalyticsData()]);
+      const status=statusResponse.ok?await statusResponse.json() as RuntimeStatus:null;
+      const [csrfResponse,postsResponse,analyticsPayload]=await Promise.all([fetch("/api/security/csrf"),fetch("/api/posts"),fetchAnalyticsData("28D")]);
       if(csrfResponse.ok)setCsrf(((await csrfResponse.json()) as {token:string}).token);
-      if(postsResponse.ok){const payload=await postsResponse.json() as PostsPayload;if(payload.posts.length||status?.configured)setContent(payload.posts.map((post)=>({id:post.id,text:post.text,status:post.status.charAt(0).toUpperCase()+post.status.slice(1) as PostStatus,date:post.scheduledAt?new Date(post.scheduledAt).toLocaleString():post.publishedAt?new Date(post.publishedAt).toLocaleString():"—",evergreen:post.evergreen,lastError:post.lastError})))}
-      if(analyticsPayload&&analyticsPayload.source!=="empty")setAnalytics(analyticsPayload);
-      if(status){setConnected(Boolean(status.connected));setRuntimeConfig(status);if(status.connected){const response=await fetch("/api/x/sync");if(response.ok){const payload=await response.json() as SyncPayload;setAccount(payload.account);setOpportunityData(payload.opportunities);setSignalData(payload.ideas);setDataSource("live");setLastSync(payload.syncedAt);const refreshedAnalytics=await fetchAnalyticsData();if(refreshedAnalytics)setAnalytics(refreshedAnalytics)}}}
+      if(postsResponse.ok){const payload=await postsResponse.json() as PostsPayload;setContent(status?.demoMode?initialContent:payload.posts.map((post)=>({id:post.id,text:post.text,status:postStatusLabel(post.status),date:post.scheduledAt?new Date(post.scheduledAt).toLocaleString():post.publishedAt?new Date(post.publishedAt).toLocaleString():"—",evergreen:post.evergreen,lastError:post.lastError})))}
+      if(analyticsPayload)setAnalytics(analyticsPayload);
+      if(status){
+        const isConnected=Boolean(status.connected);
+        const onboarding=decideOnboarding({statusLoaded:true,connected:isConnected,dismissed:localStorage.getItem(ONBOARDING_STORAGE_KEY)==="true"});
+        if(onboarding.persistComplete)localStorage.setItem(ONBOARDING_STORAGE_KEY,"true");
+        setSetupGuide(onboarding.open);
+        setConnected(isConnected);setRuntimeConfig(status);setStatusLoaded(true);
+        if(status.demoMode){setOpportunityData(opportunities);setSignalData(signals)}
+        else {setOpportunityData([]);setSignalData([])}
+        if(status.connected){
+          setSyncing(true);setSyncError("");
+          try{
+            const payload=await fetchXSync();
+            setAccount(payload.account);setOpportunityData(payload.opportunities);setSignalData(payload.ideas);setLastSync(payload.syncedAt);
+            const refreshedAnalytics=await fetchAnalyticsData("28D");if(refreshedAnalytics)setAnalytics(refreshedAnalytics);
+          }catch(error){setSyncError(sanitizeSyncError(error instanceof Error?error.message:error))}
+          finally{setSyncing(false)}
+        }
+      }
     })();
   }, []);
 
-  const loadPosts=async()=>{const response=await fetch("/api/posts");if(!response.ok)return;const payload=await response.json() as PostsPayload;setContent(payload.posts.map((post)=>({id:post.id,text:post.text,status:post.status.charAt(0).toUpperCase()+post.status.slice(1) as PostStatus,date:post.scheduledAt?new Date(post.scheduledAt).toLocaleString():post.publishedAt?new Date(post.publishedAt).toLocaleString():"—",evergreen:post.evergreen,lastError:post.lastError})))};
-  const loadAnalytics=async()=>{const payload=await fetchAnalyticsData();if(payload)setAnalytics(payload)};
+  const loadPosts=async()=>{const response=await fetch("/api/posts");if(!response.ok)return;const payload=await response.json() as PostsPayload;setContent(payload.posts.map((post)=>({id:post.id,text:post.text,status:postStatusLabel(post.status),date:post.scheduledAt?new Date(post.scheduledAt).toLocaleString():post.publishedAt?new Date(post.publishedAt).toLocaleString():"—",evergreen:post.evergreen,lastError:post.lastError})))};
+  const loadAnalytics=async(nextRange=range)=>{const payload=await fetchAnalyticsData(nextRange);if(payload)setAnalytics(payload)};
   const savePost=async(input:SavePostInput)=>{const response=await fetch("/api/posts",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify(input)});if(response.ok){await loadPosts();return true}return false};
   const publishPost=async(id:string|number)=>{const response=await fetch(`/api/posts/${id}/publish`,{method:"POST",headers:{"X-CSRF-Token":csrf}});await loadPosts();if(response.ok)await loadAnalytics();return response.ok};
   const sendFeedback=async(type:"idea"|"reply",id:string,vote:number,context:unknown)=>{await fetch("/api/feedback",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify({targetType:type,targetId:id,vote,context})})};
@@ -296,22 +364,25 @@ export default function HomePage() {
   const syncFromX = async (force=false) => {
     setSyncing(true); setSyncError("");
     try {
-      const response = await fetch(`/api/x/sync${force?"?force=1":""}`);
-      const payload = await response.json() as SyncPayload;
-      if (!response.ok) throw new Error(payload.error ?? "Sync failed");
-      setAccount(payload.account); setOpportunityData(payload.opportunities); setSignalData(payload.ideas); setDataSource("live"); setLastSync(payload.syncedAt); setConnected(true); await loadAnalytics();
+      const payload=await fetchXSync(force);
+      setAccount(payload.account); setOpportunityData(payload.opportunities); setSignalData(payload.ideas); setLastSync(payload.syncedAt); setConnected(true); await loadAnalytics();
     } catch (error) {
-      setSyncError(error instanceof Error ? error.message : "Could not sync X");
+      setSyncError(sanitizeSyncError(error instanceof Error?error.message:error));
     } finally { setSyncing(false); }
   };
 
   const openComposer = (seed?: string) => { setComposerSeed(seed); setComposer(true); };
+  const dismissOnboarding=()=>{localStorage.setItem(ONBOARDING_STORAGE_KEY,"true");setSetupGuide(false)};
   const filteredSignals = signalData.filter((signal) => signal.topic.toLowerCase().includes(search.toLowerCase()));
   const visibleContent = content.filter((item) => contentFilter === "All" || item.status === contentFilter);
 
   const filteredOpportunities = useMemo(() => opportunityData.filter((item) => `${item.name} ${item.post}`.toLowerCase().includes(search.toLowerCase())), [search,opportunityData]);
 
   const changeView = (next: View) => { setView(next); setSearch(""); };
+  const dataSource:"demo"|"live"=runtimeConfig.demoMode?"demo":"live";
+  const hasLiveData=Boolean(account||opportunityData.length>0||signalData.length>0||analytics?.dataStatus==="available");
+  const workspaceState=resolveWorkspaceState({status:statusLoaded?{configured:runtimeConfig.configured,demoMode:runtimeConfig.demoMode,connected}:null,syncing,syncError,lastSync,hasLiveData});
+  const changeRange=(next:string)=>{setRange(next);if(dataSource==="live")void loadAnalytics(next)};
   const toggleTheme = () => {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
@@ -322,8 +393,13 @@ export default function HomePage() {
     changeView(next);
     setNotificationsOpen(false);
   };
-  const liveMetrics=analytics?[{label:"Published posts",value:String(content.filter((item)=>item.status==="Published").length),delta:"live",icon:FileText},{label:"Impressions",value:analytics.totals.impressions.toLocaleString(),delta:"synced",icon:CircleGauge},{label:"Engagements",value:(analytics.totals.likes+analytics.totals.replies+analytics.totals.reposts).toLocaleString(),delta:"synced",icon:Activity},{label:"API usage",value:`${analytics.usage.reads}/${analytics.usage.maxReads}`,delta:"reads today",icon:Target}]:metricData;
-  const notificationItems=[...content.filter((item)=>item.status==="Failed").slice(0,2).map((item)=>({view:"Content" as View,title:"Publishing failed",body:item.lastError??item.text,time:"Needs attention",icon:Zap})),...content.filter((item)=>item.status==="Scheduled").slice(0,2).map((item)=>({view:"Schedule" as View,title:"Post scheduled",body:item.text,time:item.date,icon:CalendarDays})),...(lastSync?[{view:"Discover" as View,title:"X feed synchronized",body:`Ideas and reply opportunities refreshed from X.`,time:new Date(lastSync).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}),icon:Flame}]:[])];
+  const liveMetrics=dataSource==="live"&&analytics?.dataStatus==="available"?[
+    {label:"Published posts",value:String(content.filter((item)=>item.status==="Published").length),delta:"stored records",icon:FileText,provenance:{source:"derived" as const,recordedAt:analytics.range.endAt}},
+    {label:"Impressions",value:analytics.derived.totals.impressions.value.toLocaleString(),delta:"selected range",icon:CircleGauge,provenance:analytics.derived.totals.impressions.provenance},
+    {label:"Engagement rate",value:`${(analytics.derived.totals.engagementRate.value*100).toFixed(2)}%`,delta:"measured impressions",icon:Activity,provenance:analytics.derived.totals.engagementRate.provenance},
+    {label:"X resources",value:`${analytics.usage.resources}/${analytics.usage.maxResources}`,delta:analytics.usage.warning?`Budget low · ${analytics.usage.remainingResources} resources and ${analytics.usage.remainingWrites} writes left`:`${analytics.usage.requests} requests · ${analytics.usage.writes} write attempts`,icon:Target,provenance:analytics.usage.provenance},
+  ]:dataSource==="demo"?metricData:[];
+  const notificationItems=[...content.filter((item)=>item.status==="Needs review").slice(0,2).map(()=>({view:"Content" as View,title:"Publishing needs reconciliation",body:"Possible X acceptance was not confirmed locally. Do not retry this post.",time:"Owner review required",icon:Zap})),...content.filter((item)=>item.status==="Failed").slice(0,2).map((item)=>({view:"Content" as View,title:"Publishing failed",body:item.lastError??item.text,time:"Needs attention",icon:Zap})),...content.filter((item)=>item.status==="Scheduled").slice(0,2).map((item)=>({view:"Schedule" as View,title:"Post scheduled",body:item.text,time:item.date,icon:CalendarDays})),...(lastSync?[{view:"Discover" as View,title:"X feed synchronized",body:`Ideas and reply opportunities refreshed from X.`,time:new Date(lastSync).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}),icon:Flame}]:[])];
 
   return (
     <main className="app-shell">
@@ -331,11 +407,11 @@ export default function HomePage() {
         <div className="brand"><Logo/><span>OpenX Growth</span></div>
         <a className="open-source" href="https://github.com/dg996/OpenX-Growth" target="_blank" rel="noreferrer"><Github size={15}/><span>Open source</span><small>v0.1.0</small></a>
         <nav>
-          {navItems.map(({ label, icon: Icon }) => <button key={label} className={view === label ? "active" : ""} onClick={() => changeView(label)}><Icon size={18}/><span>{label}</span>{label === "Discover" && <i>5</i>}</button>)}
+          {navItems.map(({ label, icon: Icon }) => <button key={label} className={view === label ? "active" : ""} onClick={() => changeView(label)}><Icon size={18}/><span>{label}</span>{label === "Discover" && statusLoaded&&runtimeConfig.demoMode&&<i>5</i>}</button>)}
         </nav>
         <div className="sidebar-bottom">
           <button className={view === "Settings" ? "active" : ""} onClick={() => changeView("Settings")}><Settings size={18}/><span>Settings</span></button>
-          <div className="workspace">{account?.profileImageUrl?<div className="avatar profile-avatar" style={{backgroundImage:`url(${account.profileImageUrl})`}} aria-label={`${account.name} profile image`}/>:<div className="avatar">{account?.name.slice(0,2).toUpperCase()??"YOU"}</div>}<div><strong>{account?.name??"Personal workspace"}</strong><span>{account?`@${account.username} · X`:connected?"X connected":"Demo workspace"}</span></div><ChevronDown size={15}/></div>
+          <div className="workspace">{account?.profileImageUrl?<div className="avatar profile-avatar" style={{backgroundImage:`url(${account.profileImageUrl})`}} aria-label={`${account.name} profile image`}/>:<div className="avatar">{account?.name.slice(0,2).toUpperCase()??"YOU"}</div>}<div><strong>{account?.name??"Personal workspace"}</strong><span>{account?`@${account.username} · X`:connected?"X connected":runtimeConfig.demoMode?"Demo workspace":"X not connected"}</span></div><ChevronDown size={15}/></div>
         </div>
       </aside>
 
@@ -358,28 +434,34 @@ export default function HomePage() {
         </header>
 
         <div className="page-content">
+          {view==="Settings"
+            ? <SettingsView connected={connected} synced={Boolean(lastSync)} config={runtimeConfig} csrf={csrf} onDisconnected={()=>{setConnected(false);setAccount(undefined);setOpportunityData([]);setSignalData([]);setAnalytics(undefined);setLastSync(undefined);setSyncError("")}} onOpenGuide={() => setSetupGuide(true)}/>
+            : isWorkspaceBlocking(workspaceState)
+              ? <WorkspaceStatePanel state={workspaceState} onSettings={()=>changeView("Settings")}/>
+              : <>
+          <WorkspaceSyncNotice state={workspaceState} error={syncError} onRetry={()=>void syncFromX(true)} onSettings={()=>changeView("Settings")}/>
           {view === "Overview" && <>
-            <section className="metrics-row">
-              {liveMetrics.map(({ label, value, delta, icon: Icon }) => <article className="metric-card" key={label}><div><span>{label}</span><strong>{value}</strong><small><ArrowUpRight size={12}/>{delta}<em>{analytics?"":"demo data"}</em></small></div><div className="metric-icon"><Icon size={18}/></div></article>)}
-            </section>
+            {liveMetrics.length?<section className="metrics-row">
+              {liveMetrics.map(({ label, value, delta, icon: Icon,provenance }) => <article className="metric-card" key={label}><div><span>{label}</span><strong>{value}</strong><small><ArrowUpRight size={12}/>{delta}<em>{provenance?<ProvenanceText provenance={provenance}/>:"demo data"}</em></small></div><div className="metric-icon"><Icon size={18}/></div></article>)}
+            </section>:<section className="panel full-panel empty-analytics"><BarChart3 size={28}/><h2>Insufficient analytics data</h2><p>No verified X snapshots are available in the selected range yet.</p></section>}
 
             <section className="overview-grid">
               <article className="panel growth-panel">
-                {dataSource === "live" && account ? <>
-                  <div className="panel-header"><div><span className="eyebrow">AUDIENCE</span><h2>Current audience</h2></div><DataBadge source="live"/></div>
-                  <div className="chart-summary"><strong>{account.followersCount?.toLocaleString() ?? "—"}</strong><span><Check size={13}/> Synced from X</span></div>
-                  <div className="live-audience-state"><Users size={24}/><strong>Follower history is not available yet</strong><p>OpenX needs multiple audience snapshots before it can calculate and chart follower growth.</p></div>
+                {dataSource === "live" ? <>
+                  <div className="panel-header"><div><span className="eyebrow">AUDIENCE</span><h2>Follower history</h2></div><DataBadge source="live"/></div>
+                  <div className="chart-summary"><strong>{(account?.followersCount??analytics?.followers.series.at(-1)?.followers.value)?.toLocaleString() ?? "—"}</strong><span><Check size={13}/> {lastSync?`Synced from X ${new Date(lastSync).toLocaleString()}`:"Stored X snapshots"}</span></div>
+                  <DataSeriesChart label="Follower snapshots" points={(analytics?.followers.series??[]).map((point)=>({recordedAt:point.recordedAt,value:point.followers.value}))}/>
                 </> : <>
                   <div className="panel-header"><div><span className="eyebrow">AUDIENCE</span><h2>Follower growth</h2></div><div className="range-tabs">{["7D","28D","90D","1Y"].map((item) => <button className={range === item ? "selected" : ""} key={item} onClick={() => setRange(item)}>{item}</button>)}</div></div>
                   <div className="chart-summary"><strong>12,842</strong><span><TrendingUp size={13}/> +634 this period</span></div>
-                  <GrowthChart range={range}/>
+                  <DemoGrowthChart range={range}/>
                 </>}
               </article>
 
               <article className="panel signals-panel">
                 <div className="panel-header"><div><span className="eyebrow">DISCOVER</span><h2>Viral signals <DataBadge source={dataSource}/></h2></div><button className="text-btn" onClick={() => changeView("Discover")}>View all <ArrowUpRight size={13}/></button></div>
                 <div className="signal-heading"><span>TOPIC</span><span>VELOCITY</span><span>SCORE</span></div>
-                {filteredSignals.slice(0,5).map((signal) => <div className="signal-row" key={signal.topic}><div className="signal-name"><Flame size={15}/><div><strong>{signal.topic}</strong><span>{signal.change}</span></div></div><div className="microbars">{signal.bars.map((bar,i) => <i key={i} style={{height: `${bar}px`}}/>)}</div><b>{signal.score}</b></div>)}
+                {filteredSignals.slice(0,5).map((signal) => <div className="signal-row" key={signal.topic}><div className="signal-name"><Flame size={15}/><div><strong>{signal.topic}</strong><span>{signal.change}</span></div></div>{dataSource==="demo"&&signal.bars?<div className="microbars">{signal.bars.map((bar,i) => <i key={i} style={{height: `${bar}px`}}/>)}</div>:<span><ProvenanceText provenance={signal.scoreProvenance}/></span>}<b>{signal.score}</b></div>)}
               </article>
 
               <article className="panel content-panel"><ContentTable items={visibleContent.slice(0,5)} filter={contentFilter} onFilter={setContentFilter} onCreate={() => openComposer()} onPublish={publishPost}/></article>
@@ -389,73 +471,94 @@ export default function HomePage() {
 
           {view === "Discover" && <DiscoverView signals={filteredSignals} opportunities={filteredOpportunities} source={dataSource} syncing={syncing} error={syncError} lastSync={lastSync} onSync={()=>void syncFromX(true)} onConnect={() => changeView("Settings")} onReply={setSelectedReply} onCreate={(signal) => {void sendFeedback("idea",signal.topic,1,signal);openComposer(signal.hook)}} onFeedback={(signal,vote)=>void sendFeedback("idea",signal.topic,vote,signal)}/>}
           {view === "Content" && <section className="panel full-panel"><ContentTable items={visibleContent} filter={contentFilter} onFilter={setContentFilter} onCreate={() => openComposer()} onPublish={publishPost}/></section>}
-          {view === "Schedule" && <ScheduleView items={content.filter((item) => item.status === "Scheduled")} onCreate={() => openComposer()}/>}
-          {view === "Analytics" && <AnalyticsView range={range} setRange={setRange} data={analytics}/>}
-          {view === "Settings" && <SettingsView connected={connected} config={runtimeConfig} csrf={csrf} onDisconnected={()=>{setConnected(false);setAccount(undefined);setDataSource("demo")}} onOpenGuide={() => setSetupGuide(true)}/>}
+          {view === "Schedule" && <ScheduleView items={content.filter((item) => item.status === "Scheduled")} onCreate={() => openComposer()} postingTimes={dataSource==="live"?analytics?.postingTimes:undefined}/>}
+          {view === "Analytics" && <AnalyticsView range={range} setRange={changeRange} data={dataSource==="live"?analytics:undefined}/>}
+          </>}
         </div>
       </section>
       {composer && <Composer initialText={composerSeed} csrf={csrf} evergreenEnabled={runtimeConfig.evergreenEnabled} onClose={() => setComposer(false)} onSave={savePost}/>}
       {selectedReply && <ReplyComposer opportunity={selectedReply} live={dataSource === "live"} csrf={csrf} aiRepliesApproved={runtimeConfig.aiRepliesApproved} onFeedback={(vote)=>void sendFeedback("reply",selectedReply.id,vote,selectedReply)} onClose={() => setSelectedReply(undefined)}/>}
-      {setupGuide && <SetupGuide onClose={() => setSetupGuide(false)} onGoToSettings={() => { setSetupGuide(false); changeView("Settings"); }}/>}
+      {setupGuide && <SetupGuide onClose={dismissOnboarding} onGoToSettings={() => { setSetupGuide(false); changeView("Settings"); }}/>}
     </main>
   );
 }
 
 function ContentTable({ items, filter, onFilter, onCreate, onPublish }: { items: ContentItem[]; filter: string; onFilter: (v: string) => void; onCreate: () => void; onPublish:(id:string|number)=>Promise<boolean> }) {
-  return <div><div className="panel-header"><div><span className="eyebrow">PUBLISH</span><h2>Content queue</h2></div><button className="outline-btn" onClick={onCreate}><PenLine size={14}/> Create post</button></div><div className="content-tabs">{["All","Draft","Scheduled","Published","Failed"].map((tab) => <button className={filter === tab ? "selected" : ""} key={tab} onClick={() => onFilter(tab)}>{tab}</button>)}</div><div className="content-table"><div className="content-row content-head"><span>CONTENT</span><span>STATUS</span><span>DATE</span><span>EVERGREEN</span><span>RESULT</span><span/></div>{items.map((item) => <div className="content-row" key={item.id}><strong title={item.lastError||item.text}>{item.text}</strong><span className={`status ${item.status.toLowerCase()}`}><i/>{item.status}</span><span>{item.date}</span><span>{item.evergreen?"Yes":"—"}</span><span>{item.lastError??item.impressions??"—"}</span>{["Draft","Failed"].includes(item.status)?<button className="row-action" onClick={()=>void onPublish(item.id)}>{item.status==="Failed"?"Retry":"Publish"}</button>:<button className="plain-icon"><MoreHorizontal size={16}/></button>}</div>)}</div>{items.length === 0 && <div className="empty-state">No posts in this view.</div>}</div>;
+  return <div><div className="panel-header"><div><span className="eyebrow">PUBLISH</span><h2>Content queue</h2></div><button className="outline-btn" onClick={onCreate}><PenLine size={14}/> Create post</button></div><div className="content-tabs">{["All","Draft","Scheduled","Published","Failed","Needs review"].map((tab) => <button className={filter === tab ? "selected" : ""} key={tab} onClick={() => onFilter(tab)}>{tab}</button>)}</div><div className="content-table"><div className="content-row content-head"><span>CONTENT</span><span>STATUS</span><span>DATE</span><span>EVERGREEN</span><span>RESULT</span><span/></div>{items.map((item) => <div className="content-row" key={item.id}><strong title={item.lastError||item.text}>{item.text}</strong><span className={`status ${item.status.toLowerCase().replace(" ","-")}`}><i/>{item.status}</span><span>{item.date}</span><span>{item.evergreen?"Yes":"—"}</span><span>{item.lastError??item.impressions??"—"}</span>{["Draft","Failed"].includes(item.status)?<button className="row-action" onClick={()=>void onPublish(item.id)}>{item.status==="Failed"?"Retry":"Publish"}</button>:<button className="plain-icon"><MoreHorizontal size={16}/></button>}</div>)}</div>{items.length === 0 && <div className="empty-state">No posts in this view.</div>}</div>;
 }
 
-function DataBadge({source}:{source:"demo"|"live"}) { return <span className={`data-badge ${source}`}>{source === "live" ? <><i/> LIVE FROM X</> : "DEMO DATA"}</span>; }
+function DataBadge({source}:{source:ProvenanceSource}) { return <span className={`data-badge ${source}`}>{source === "live" ? <><i/> LIVE FROM X</> : source === "demo" ? "DEMO DATA" : source.toUpperCase()}</span>; }
+
+function ProvenanceText({provenance}:{provenance:Provenance}) {
+  return <>{provenance.source}{provenance.recordedAt>0?` · ${new Date(provenance.recordedAt).toLocaleString()}`:""}</>;
+}
 
 function OpportunityList({ items, onView, onReply, source }: { items: ReplyOpportunity[]; onView: () => void; onReply: (item:ReplyOpportunity) => void; source:"demo"|"live" }) {
-  return <div><div className="panel-header"><div><span className="eyebrow">ENGAGE</span><h2>Best reply opportunities <DataBadge source={source}/></h2></div><button className="text-btn" onClick={onView}>View all <ArrowUpRight size={13}/></button></div><div className="opportunity-head"><span>AUTHOR & POST</span><span>EST. REACH</span><span>RELEVANCE</span></div>{items.slice(0,4).map((item) => <div className="opportunity-row" key={item.id}><div className="author"><div className="avatar">{item.initials}</div><div><strong>{item.name}<small>{item.handle}</small></strong><p>{item.post}</p></div></div><span>{item.reach}</span><b>{item.relevance}%</b><button className="outline-btn" onClick={() => onReply(item)}><MessageCircle size={14}/> Reply</button></div>)}</div>;
+  return <div><div className="panel-header"><div><span className="eyebrow">ENGAGE</span><h2>Best reply opportunities <DataBadge source={source}/></h2></div><button className="text-btn" onClick={onView}>View all <ArrowUpRight size={13}/></button></div><div className="opportunity-head"><span>AUTHOR & POST</span><span>EST. REACH</span><span>RELEVANCE</span></div>{items.slice(0,4).map((item) => <div className="opportunity-row" key={item.id}><div className="author"><div className="avatar">{item.initials}</div><div><strong>{item.name}<small>{item.handle}</small></strong><p>{item.post}</p><small>{item.reason}{item.algorithmVersion?` · ${item.algorithmVersion}`:""}</small></div></div><span>{item.reach}<small><ProvenanceText provenance={item.reachProvenance}/></small></span><b>{item.relevance}%<small><ProvenanceText provenance={item.relevanceProvenance}/></small></b><button className="outline-btn" onClick={() => onReply(item)}><MessageCircle size={14}/> Reply</button></div>)}</div>;
 }
 
 function DiscoverView({ signals: rows, opportunities: ops, onCreate, onReply, onSync, onConnect, onFeedback, source, syncing, error, lastSync }: { signals: IdeaSignal[]; opportunities: ReplyOpportunity[]; onCreate: (signal:IdeaSignal) => void; onReply:(item:ReplyOpportunity)=>void; onSync:()=>void; onConnect:()=>void; onFeedback:(signal:IdeaSignal,vote:number)=>void; source:"demo"|"live"; syncing:boolean; error:string; lastSync?:string }) {
-  return <div className="discover-layout"><section className="source-banner"><div><DataBadge source={source}/><p>{source === "live" ? `Ideas and replies are ranked from your real X feed${lastSync ? ` · synced ${new Date(lastSync).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}` : ""}.` : "These are examples. Connect X to derive ideas and reply opportunities from accounts you actually follow."}</p></div>{source === "live" ? <button className="outline-btn" onClick={onSync} disabled={syncing}><CircleGauge size={14}/>{syncing ? "Syncing…" : "Sync from X"}</button> : <button className="primary-btn" onClick={onConnect}><Link2 size={14}/> Connect X</button>}</section>{error && <div className="sync-error">Could not sync: {error}</div>}<section className="panel full-panel"><div className="panel-header"><div><span className="eyebrow">IDEAS FROM YOUR NETWORK</span><h2>What is gaining momentum</h2><p>Topics found in your home timeline and compared with your recent posts.</p></div><button className="outline-btn" onClick={source === "live" ? onSync : onConnect}><CircleGauge size={14}/> {source === "live" ? "Refresh ideas" : "Connect for live ideas"}</button></div><div className="signal-cards">{rows.map((signal, index) => <article key={signal.topic}><div className="signal-rank">0{index+1}</div><Flame size={18}/><div><h3>{signal.topic} <small>{signal.pillar}</small></h3><p>{signal.rationale || signal.change}</p></div><div className="idea-vote"><button onClick={()=>onFeedback(signal,1)}>👍</button><button onClick={()=>onFeedback(signal,-1)}>👎</button></div><div className="signal-score"><strong>{signal.score}</strong><span>signal score</span></div><button className="outline-btn" onClick={() => onCreate(signal)}><Lightbulb size={14}/> Use idea</button></article>)}</div></section><section className="panel full-panel"><OpportunityList items={ops} source={source} onReply={onReply} onView={() => {}}/></section></div>;
+  return <div className="discover-layout"><section className="source-banner"><div><DataBadge source={source}/><p>{source === "live" ? `Ideas and replies are ranked from your real X feed${lastSync ? ` · synced ${new Date(lastSync).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}` : ""}.` : "These are examples. Connect X to derive ideas and reply opportunities from accounts you actually follow."}</p></div>{source === "live" ? <button className="outline-btn" onClick={onSync} disabled={syncing}><CircleGauge size={14}/>{syncing ? "Syncing…" : "Sync from X"}</button> : <button className="primary-btn" onClick={onConnect}><Link2 size={14}/> Connect X</button>}</section>{error && <div className="sync-error">Could not sync: {error}</div>}<section className="panel full-panel"><div className="panel-header"><div><span className="eyebrow">IDEAS FROM YOUR NETWORK</span><h2>What is gaining momentum</h2><p>Topics found in your home timeline and compared with your recent posts.</p></div><button className="outline-btn" onClick={source === "live" ? onSync : onConnect}><CircleGauge size={14}/> {source === "live" ? "Refresh ideas" : "Connect for live ideas"}</button></div><div className="signal-cards">{rows.map((signal, index) => <article key={signal.topic}><div className="signal-rank">0{index+1}</div><Flame size={18}/><div><h3>{signal.topic} <small>{signal.pillar}</small></h3><p>{signal.rationale || signal.change}{signal.algorithmVersion?` · ${signal.algorithmVersion}`:""}</p></div><div className="idea-vote"><button onClick={()=>onFeedback(signal,1)}>👍</button><button onClick={()=>onFeedback(signal,-1)}>👎</button></div><div className="signal-score"><strong>{signal.score}</strong><span><ProvenanceText provenance={signal.scoreProvenance}/></span></div><button className="outline-btn" onClick={() => onCreate(signal)}><Lightbulb size={14}/> Use idea</button></article>)}</div></section><section className="panel full-panel"><OpportunityList items={ops} source={source} onReply={onReply} onView={() => {}}/></section></div>;
 }
 
-function ScheduleView({ items, onCreate }: { items: ContentItem[]; onCreate: () => void }) {
+function ScheduleView({ items, onCreate,postingTimes }: { items: ContentItem[]; onCreate: () => void;postingTimes?:AnalyticsData["postingTimes"] }) {
   const start=new Date();start.setHours(0,0,0,0);const days=Array.from({length:7},(_,index)=>{const date=new Date(start);date.setDate(start.getDate()+index);return date});
-  return <section className="panel full-panel calendar-panel"><div className="panel-header"><div><span className="eyebrow">PERSISTENT SCHEDULE</span><h2>Next seven days</h2><p>Scheduled posts are stored in D1 and published by the protected cron endpoint.</p></div><button className="primary-btn" onClick={onCreate}><Plus size={16}/> Schedule post</button></div><div className="calendar-grid">{days.map((day,index)=>{const dayItems=items.filter((item)=>item.date!=="—"&&new Date(item.date).toDateString()===day.toDateString());return <div className="calendar-day" key={day.toISOString()}><strong>{day.toLocaleDateString(undefined,{weekday:"short",day:"numeric"}).toUpperCase()}</strong><span className="best-time"><Clock3 size={12}/> Suggested {index%2?"17:30":"10:00"}</span>{dayItems.map((item)=><article key={item.id}><span>{new Date(item.date).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span><p>{item.text}</p>{item.evergreen&&<small>Evergreen</small>}</article>)}</div>})}</div></section>;
+  const recommendation=postingTimes?.status==="ready"&&postingTimes.suggestions.length?`Recommended from ${postingTimes.sampleSize} published posts: ${postingTimes.suggestions.slice(0,3).map((item)=>item.label).join(", ")}`:`Insufficient data for posting-time recommendations${postingTimes?` (${postingTimes.sampleSize}/${postingTimes.minimumSamples} published posts)`:""}.`;
+  return <section className="panel full-panel calendar-panel"><div className="panel-header"><div><span className="eyebrow">PERSISTENT SCHEDULE</span><h2>Next seven days</h2><p>Scheduled posts are stored in D1 and published by the protected cron endpoint.</p><p><Clock3 size={12}/> {recommendation}</p></div><button className="primary-btn" onClick={onCreate}><Plus size={16}/> Schedule post</button></div><div className="calendar-grid">{days.map((day)=>{const dayItems=items.filter((item)=>item.date!=="—"&&new Date(item.date).toDateString()===day.toDateString());return <div className="calendar-day" key={day.toISOString()}><strong>{day.toLocaleDateString(undefined,{weekday:"short",day:"numeric"}).toUpperCase()}</strong>{dayItems.map((item)=><article key={item.id}><span>{new Date(item.date).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span><p>{item.text}</p>{item.evergreen&&<small>Evergreen</small>}</article>)}</div>})}</div></section>;
 }
 
 function AnalyticsView({ range, setRange, data }: { range: string; setRange: (v: string) => void; data?:AnalyticsData }) {
-  if(!data||data.source==="empty")return <section className="panel full-panel empty-analytics"><BarChart3 size={28}/><h2>No OpenX content analytics yet</h2><p>Synced account totals appear in Overview. Topic, format and hook breakdowns start after OpenX publishes a post and can link its X metrics to that content.</p></section>;
-  const cards=[{label:"Impressions",value:data.totals.impressions.toLocaleString(),icon:CircleGauge},{label:"Likes",value:data.totals.likes.toLocaleString(),icon:Activity},{label:"Replies",value:data.totals.replies.toLocaleString(),icon:MessageCircle},{label:"Reposts",value:data.totals.reposts.toLocaleString(),icon:TrendingUp}];
-  const breakdown=(title:string,rows:AnalyticsData["byTopic"])=><section className="panel analytics-breakdown"><div className="panel-header"><div><span className="eyebrow">CONTENT INTELLIGENCE</span><h2>{title}</h2></div></div>{rows.slice(0,6).map((row)=><div className="breakdown-row" key={row.label}><span>{row.label}</span><i><b style={{width:`${Math.max(8,100*(row.impressions/(rows[0]?.impressions||1)))}%`}}/></i><strong>{row.impressions.toLocaleString()}</strong></div>)}</section>;
-  return <div className="analytics-layout"><section className="metrics-row">{cards.map(({label,value,icon:Icon})=><article className="metric-card" key={label}><div><span>{label}</span><strong>{value}</strong><small><Check size={12}/>LIVE<em>from X snapshots</em></small></div><div className="metric-icon"><Icon size={18}/></div></article>)}</section><section className="panel full-panel"><div className="panel-header"><div><span className="eyebrow">PERFORMANCE</span><h2>Growth over time</h2></div><div className="range-tabs">{["7D","28D","90D","1Y"].map((item)=><button className={range===item?"selected":""} key={item} onClick={()=>setRange(item)}>{item}</button>)}</div></div><div className="large-chart"><GrowthChart range={range}/></div></section><div className="analytics-grid">{breakdown("Performance by topic",data.byTopic)}{breakdown("Performance by format",data.byFormat)}{breakdown("Best hooks",data.byHook)}{breakdown("Best posting times",data.byHour)}</div></div>;
+  if(!data||data.dataStatus==="insufficient_data")return <section className="panel full-panel empty-analytics"><BarChart3 size={28}/><h2>Insufficient analytics data</h2><p>Sync X to store real post and follower snapshots. Charts and recommendations appear only when their documented sample thresholds are met.</p></section>;
+  const cards=[{label:"Impressions",metric:data.derived.totals.impressions,icon:CircleGauge},{label:"Engagement rate",metric:{...data.derived.totals.engagementRate,value:data.derived.totals.engagementRate.value*100},suffix:"%",icon:Activity},{label:"Replies",metric:data.derived.totals.replies,icon:MessageCircle},{label:"Reposts",metric:data.derived.totals.reposts,icon:TrendingUp}];
+  const breakdown=(title:string,rows:AnalyticsBreakdown[])=>{const maximum=Math.max(0,...rows.map((row)=>row.medianEngagementRate.value));return <section className="panel analytics-breakdown"><div className="panel-header"><div><span className="eyebrow">DERIVED FROM X SNAPSHOTS</span><h2>{title}</h2></div></div>{rows.length?rows.slice(0,6).map((row)=><div className="breakdown-row" key={row.label}><span>{row.label}</span><i><b style={{width:`${maximum?Math.max(8,100*(row.medianEngagementRate.value/maximum)):0}%`}}/></i><strong>{(row.medianEngagementRate.value*100).toFixed(2)}%<small><ProvenanceText provenance={row.provenance}/></small></strong></div>):<div className="empty-state">Insufficient data</div>}</section>};
+  return <div className="analytics-layout"><section className="metrics-row">{cards.map(({label,metric,suffix="",icon:Icon})=><article className="metric-card" key={label}><div><span>{label}</span><strong>{metric.value.toLocaleString(undefined,{maximumFractionDigits:2})}{suffix}</strong><small><Check size={12}/><ProvenanceText provenance={metric.provenance}/></small></div><div className="metric-icon"><Icon size={18}/></div></article>)}</section><section className="panel full-panel"><div className="panel-header"><div><span className="eyebrow">DERIVED SERIES</span><h2>Impressions over time</h2><p><ProvenanceText provenance={data.derived.totals.impressions.provenance}/></p></div><div className="range-tabs">{["7D","28D","90D","1Y"].map((item)=><button className={range===item?"selected":""} key={item} onClick={()=>setRange(item)}>{item}</button>)}</div></div><div className="large-chart"><DataSeriesChart label="Impressions from X snapshots" points={data.derived.series.map((point)=>({recordedAt:point.recordedAt,value:point.impressions.value}))}/></div></section><div className="analytics-grid">{breakdown("Performance by topic",data.derived.byTopic)}{breakdown("Performance by format",data.derived.byFormat)}{breakdown("Best hooks",data.derived.byHook)}{breakdown("Posting-hour performance",data.derived.byHour)}</div></div>;
 }
 
-function SettingsView({ connected, config, csrf, onDisconnected, onOpenGuide }: { connected:boolean;config:AppRuntimeConfig;csrf:string;onDisconnected:()=>void;onOpenGuide:()=>void }) {
+function SettingsView({ connected, synced, config, csrf, onDisconnected, onOpenGuide }: { connected:boolean;synced:boolean;config:AppRuntimeConfig;csrf:string;onDisconnected:()=>void;onOpenGuide:()=>void }) {
   const [message,setMessage]=useState("");
+  const [setupReferenceOpen,setSetupReferenceOpen]=useState(false);
   const [origin] = useState(() => (typeof window === "undefined" ? "https://your-domain.com" : window.location.origin));
   const callback = `${origin}/api/x/oauth/callback`;
   const cronExample = `curl -X POST "${origin}/api/cron/publish" -H "Authorization: Bearer $CRON_SECRET"`;
   const disconnect=async()=>{const response=await fetch("/api/x/disconnect",{method:"POST",headers:{"X-CSRF-Token":csrf}});if(response.ok){onDisconnected();setMessage("X disconnected and stored tokens deleted.")}};
   const deleteAll=async()=>{if(!window.confirm("Delete every local draft, schedule, metric, feedback item, cached X post and OAuth token? This cannot be undone."))return;const response=await fetch("/api/data/delete",{method:"DELETE",headers:{"X-CSRF-Token":csrf}});if(response.ok){onDisconnected();setMessage("All local application data was deleted. Refreshing…");setTimeout(()=>window.location.reload(),700)}else setMessage("Deletion failed.")};
   const importData=async(file:File)=>{try{const payload=JSON.parse(await file.text());const response=await fetch("/api/data/import",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify(payload)});const failure=response.ok?undefined:await response.json() as {error?:string};setMessage(response.ok?"Import completed. Refresh to see the data.":`Import failed: ${failure?.error??"unknown error"}`)}catch{setMessage("Invalid JSON export.")}};
+  const x=config.xConfiguration;
+  const ai=config.aiConfiguration;
+  const configured=(value:boolean)=>value?"Configured":"Not configured";
+  const protectedConfigured=(value:boolean|undefined)=>value===undefined?"Unavailable in public demo":configured(value);
   return (
     <div className="settings-layout settings-layout-wide">
       <section className="panel settings-card">
         <div className="panel-header">
           <div>
-            <span className="eyebrow">SETUP GUIDE</span>
-            <h2>Connect OpenX to X</h2>
-            <p>OpenX never asks for your X password or a pasted bearer token. You create an X developer app, set server-side environment variables, then authorize once in the browser.</p>
+            <span className="eyebrow">CURRENT CONFIGURATION</span>
+            <h2>Runtime state</h2>
+            <p>This summary is derived from the protected server response. It shows status and safe labels only, never environment values or provider URLs.</p>
           </div>
           <div className={`connection-state ${connected?"is-connected":""}`}><i/>{connected?"Connected to X":"Not connected"}</div>
         </div>
 
         <div className="config-status">
-          <StatusLine ok={config.configured} label="X_CLIENT_ID + SESSION_SECRET in server env" />
-          <StatusLine ok={connected} label="X account authorized (OAuth)" />
-          <StatusLine ok={config.accessProtected} label="APP_ACCESS_TOKEN (private deployments)" optional />
-          <StatusLine ok={config.aiConfigured && config.aiContentApproved} label="AI provider + policy flags" optional />
+          <ConfigurationLine label="X account" value={connected?"Connected":"Not connected"} ok={connected}/>
+          <ConfigurationLine label="X_CLIENT_ID" value={protectedConfigured(x?.xClientIdConfigured)} ok={Boolean(x?.xClientIdConfigured)}/>
+          <ConfigurationLine label="SESSION_SECRET" value={protectedConfigured(x?.sessionSecretConfigured)} ok={Boolean(x?.sessionSecretConfigured)}/>
+          <ConfigurationLine label="APP_URL" value={protectedConfigured(x?.appUrlConfigured)} ok={Boolean(x?.appUrlConfigured)}/>
+          <ConfigurationLine label="X_CLIENT_SECRET" value={protectedConfigured(x?.xClientSecretConfigured)} ok={Boolean(x?.xClientSecretConfigured)}/>
+          <ConfigurationLine label="APP_ACCESS_TOKEN" value={protectedConfigured(x?.appAccessTokenConfigured)} ok={Boolean(x?.appAccessTokenConfigured)}/>
+          <ConfigurationLine label="CRON_SECRET" value={protectedConfigured(x?.cronSecretConfigured)} ok={Boolean(x?.cronSecretConfigured)}/>
+          <ConfigurationLine label="OPENX_API_TOKEN" value={protectedConfigured(x?.apiTokenConfigured)} ok={Boolean(x?.apiTokenConfigured)}/>
+          <ConfigurationLine label="Provider" value={ai?.provider??"Unavailable in public demo"} ok={Boolean(ai)}/>
+          <ConfigurationLine label="Model" value={ai?.model??"Unavailable in public demo"} ok={Boolean(ai)}/>
+          <ConfigurationLine label="API key" value={configured(ai?.apiKeyConfigured??config.aiConfigured)} ok={ai?.apiKeyConfigured??config.aiConfigured}/>
+          <ConfigurationLine label="AI content" value={(ai?.contentApproved??config.aiContentApproved)?"Enabled":"Disabled"} ok={ai?.contentApproved??config.aiContentApproved}/>
+          <ConfigurationLine label="AI replies" value={(ai?.repliesApproved??config.aiRepliesApproved)?"Enabled":"Disabled"} ok={ai?.repliesApproved??config.aiRepliesApproved}/>
         </div>
 
         <button className="setup-help" onClick={onOpenGuide}><Lightbulb size={16}/><span><strong>Prefer a step-by-step wizard?</strong><small>Open the interactive setup guide</small></span><ArrowUpRight size={15}/></button>
 
+        <button className="setup-reference-toggle" onClick={()=>setSetupReferenceOpen((open)=>!open)} aria-expanded={setupReferenceOpen}><span><small>SETUP REFERENCE</small><strong>Installation examples and schema requirements</strong><em>Reference values below are not the current runtime configuration.</em></span><ChevronDown size={16}/></button>
+        {setupReferenceOpen&&<div className="setup-reference">
         <GuideStep n={1} title="Create an app in the X Developer Console">
           <div className="instruction-list">
             <div><b>1</b><p><strong>Go to console.x.com</strong><span>Create a project, then a new app dedicated to this OpenX instance.</span></p></div>
@@ -483,7 +586,7 @@ function SettingsView({ connected, config, csrf, onDisconnected, onOpenGuide }: 
             <EnvVarRow name="SESSION_SECRET" required description="Encrypts OAuth tokens before D1 storage. Generate with: openssl rand -base64 48" example="SESSION_SECRET=a_long_random_string_at_least_32_chars" />
             <EnvVarRow name="APP_URL" required description="Public origin of this deployment. Must match Website URL registered in X." example={`APP_URL=${origin}`} />
             <EnvVarRow name="X_CLIENT_SECRET" description="Only if X treats your app as a confidential OAuth client. Public SPA/PKCE apps skip this." example="X_CLIENT_SECRET=" />
-            <EnvVarRow name="APP_ACCESS_TOKEN" description="Optional. Leave empty for public demo mode. Set to require a login gate on private deployments." example="APP_ACCESS_TOKEN=" />
+            <EnvVarRow name="APP_ACCESS_TOKEN" required description="Required before configuring X. It may be empty only for the unconfigured, write-disabled public demo." example="APP_ACCESS_TOKEN=a_distinct_random_access_token" />
             <EnvVarRow name="CRON_SECRET" description="Protects POST /api/cron/publish for scheduled publishing. Use a unique random value." example="CRON_SECRET=openssl_rand_base64_32" />
             <EnvVarRow name="OPENX_API_TOKEN" description="Bearer token for REST API and MCP automation. Separate from X credentials." example="OPENX_API_TOKEN=openssl_rand_base64_32" />
           </div>
@@ -532,6 +635,7 @@ function SettingsView({ connected, config, csrf, onDisconnected, onOpenGuide }: 
           </div>
           {message && <div className="form-disclaimer"><Check size={14}/><span>{message}</span></div>}
         </GuideStep>
+        </div>}
       </section>
 
       <aside className="panel principle-card settings-checklist">
@@ -542,7 +646,7 @@ function SettingsView({ connected, config, csrf, onDisconnected, onOpenGuide }: 
           <li className={config.configured?"done":""}>Callback URL registered in X</li>
           <li className={config.configured?"done":""}>SESSION_SECRET generated</li>
           <li className={connected?"done":""}>Continue with X completed</li>
-          <li className={connected?"done":""}>Discover → Sync from X</li>
+          <li className={synced?"done":""}>Discover → Sync from X</li>
           <li>Content → create draft → publish test</li>
         </ol>
         <p>OAuth tokens never appear in the UI or exports. Disconnect removes encrypted tokens from your database.</p>
@@ -552,8 +656,6 @@ function SettingsView({ connected, config, csrf, onDisconnected, onOpenGuide }: 
   );
 }
 
-function StatusLine({ok,label,optional}:{ok:boolean;label:string;optional?:boolean}) {
-  const tone = ok ? "ok" : optional ? "neutral" : "warning";
-  const status = ok ? "Ready" : optional ? "Optional" : "Required";
-  return <div className={tone}>{ok?<Check size={14}/>:optional?<CircleGauge size={14}/>:<X size={14}/>}<span>{label}</span><b>{status}</b></div>;
+function ConfigurationLine({ok,label,value}:{ok:boolean;label:string;value:string}) {
+  return <div className={ok?"ok":"neutral"}>{ok?<Check size={14}/>:<CircleGauge size={14}/>}<span>{label}</span><b>{value}</b></div>;
 }
