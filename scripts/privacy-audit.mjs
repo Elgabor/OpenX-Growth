@@ -12,6 +12,7 @@ const checks=[
   ["Sites deployment identity",/\bappgdep_[a-f0-9]{20,}\b/],
   ["generated deployment hostname",/\b[a-z0-9-]+\.[a-z0-9-]+\.chatgpt\.site\b/i],
   ["personal email",/\b[A-Z0-9._%+-]+@(?!example\.com\b)[A-Z0-9.-]+\.[A-Z]{2,}\b/i],
+  ["local macOS user path",/\/Users\/[^/\s"'`]+\//],
 ];
 const findings=[];
 for(const file of textFiles){let source;try{source=readFileSync(file,"utf8")}catch{continue}for(const [label,pattern] of checks){const match=source.match(pattern);if(match)findings.push(`${file}: ${label} (${match[0].slice(0,24)}…)`)}}
