@@ -183,6 +183,8 @@ Only change a flag to `true` after completing that policy review and, where X re
 
 Evergreen recycling is also off by default. Enable `ENABLE_EVERGREEN` only if repeated scheduled publishing is permitted for your disclosed use case, and avoid identical or engagement-bait content.
 
+The Overview plan never calls X or AI while rendering. `Create draft` opens an editable deterministic seed. `Generate with AI` appears only when the provider and content-approval flag are ready, and it sends exactly one request after a user click. Provider output is treated as untrusted: requests, response envelopes, JSON content, post/thread lengths, response size and timeout are validated server-side before a labelled suggestion can enter the Composer. Publishing remains a separate human action behind the existing approval gates.
+
 ## API usage and costs
 
 X API access is pay-per-use. OpenX caches intelligence syncs and enforces daily budgets:
@@ -264,7 +266,7 @@ npm run release:check
 
 Pull requests must pass build, lint, unit/integration tests and secret scanning. The privacy audit checks tracked files for common credentials, personal email addresses, deployment identities and generated instance hostnames. CI additionally scans full Git history with Gitleaks.
 
-The hermetic HTTP E2E runner starts isolated local instances, applies migrations to temporary D1 state and injects deterministic X fixtures. It does not load local environment files or call live X/AI services:
+The hermetic HTTP E2E runner starts isolated local instances, applies migrations to temporary D1 state and injects deterministic X and OpenAI-compatible fixtures. It does not load local environment files or call live X/AI services:
 
 ```bash
 npm run test:e2e
@@ -277,6 +279,7 @@ The lower-level `test:e2e:demo`, `test:e2e:misconfigured` and `test:e2e:configur
 - No analytics or telemetry are sent to the maintainers.
 - X posts, drafts, analytics and encrypted tokens stay in your D1 database.
 - Provider prompts are sent only when you explicitly invoke an enabled AI action.
+- AI style context is limited to the 12 newest human-written (`generated=false`) post texts plus bounded feedback signals. Context and style samples are marked as untrusted source material in the provider prompt.
 - Settings → Disconnect X deletes the stored X token.
 - Cached feed content expires automatically and is deleted immediately on disconnect.
 - Settings → Export downloads portable JSON without credentials.

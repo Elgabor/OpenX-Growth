@@ -46,6 +46,34 @@ export function resolveWorkspaceState(input: WorkspaceStateInput): WorkspaceStat
   return input.hasLiveData ? "live" : "connected-insufficient";
 }
 
+type LivePlanningDataInput = {
+  hasAccountProfile: boolean;
+  ideaCount: number;
+  replyOpportunityCount: number;
+  analyticsStatus?: "available" | "insufficient_data";
+};
+
+export function hasLivePlanningData(input: LivePlanningDataInput) {
+  // An account profile proves connection identity, not that planning data is ready.
+  return input.ideaCount > 0 || input.replyOpportunityCount > 0 || input.analyticsStatus === "available";
+}
+
+export function isAiContentReady(input: { aiConfigured: boolean; aiContentApproved: boolean }) {
+  return input.aiConfigured && input.aiContentApproved;
+}
+
+export function growthPlanEmptyGuidance(kind: "content" | "replies") {
+  return kind === "content"
+    ? {
+        title: "No content recommendation yet",
+        body: "Open Discover and run a read-only sync to load ranked ideas. Any reply opportunities stay available.",
+      }
+    : {
+        title: "No reply opportunities yet",
+        body: "Open Discover and run a read-only sync to load ranked conversations. Your content recommendation stays available.",
+      };
+}
+
 export function isWorkspaceBlocking(state: WorkspaceState): state is "loading" | "configured-disconnected" {
   return state === "loading" || state === "configured-disconnected";
 }
@@ -82,5 +110,28 @@ export function syncErrorGuidance(error: unknown) {
     title:"Latest X sync failed",
     body:`The latest read-only sync stopped with ${code}. Existing verified data remains available.`,
     retryable,
+  };
+}
+
+const AI_SETTINGS_ERRORS=new Set([
+  "AI_NOT_CONFIGURED",
+  "X_AI_CONTENT_APPROVAL_REQUIRED",
+  "X_AI_REPLY_APPROVAL_REQUIRED",
+  "AI_REPLY_APPROVAL_REQUIRED",
+]);
+
+export function aiErrorGuidance(error: unknown) {
+  const code=typeof error==="string"?error:"";
+  if(AI_SETTINGS_ERRORS.has(code))return {
+    message:"AI drafting is off. Review the provider and X approval settings to enable it.",
+    openSettings:true,
+  };
+  if(code==="AI_PROVIDER_TIMEOUT")return {
+    message:"The AI provider took too long to respond. Try again when you are ready.",
+    openSettings:false,
+  };
+  return {
+    message:"AI could not create a valid suggestion. Try again or start with the editable draft.",
+    openSettings:false,
   };
 }

@@ -73,12 +73,27 @@ test("Settings separates authoritative runtime state from a collapsed setup refe
   assert.match(setupReference,/AI_MODEL=gpt-4o-mini/);
 });
 
-test("overview growth plan uses loaded discovery data without hidden sync or AI calls", () => {
-  assert.match(page,/Today&apos;s Growth Plan/);
-  assert.match(page,/buildGrowthPlan\(\{ dataSource, connected, ideas: signalData, opportunities: opportunityData \}\)/);
-  assert.match(page,/No hidden sync or AI calls on open/);
-  assert.match(page,/Create draft/);
-  assert.match(page,/Generate with AI/);
-  assert.match(page,/userFacingAiError/);
-  assert.match(page,/aiDraftAvailability/);
+test("overview growth plan uses loaded discovery data and user-initiated AI only", () => {
+  const plan=page.slice(page.indexOf("function TodaysGrowthPlan"),page.indexOf("function Progress"));
+  assert.match(page,/ideas=\{signalData\}/);
+  assert.match(page,/opportunities=\{opportunityData\}/);
+  assert.match(plan,/buildGrowthPlan\(ideas,opportunities\)/);
+  assert.match(plan,/inFlight=useRef\(false\)/);
+  assert.match(plan,/Create draft/);
+  assert.match(plan,/Generate with AI/);
+  assert.match(plan,/kind:selectedFormat/);
+  assert.match(plan,/buildGrowthPlanDraftSeed\(plan\.content!\)/);
+  assert.match(plan,/Connect X/);
+  assert.match(plan,/growthPlanEmptyGuidance\("content"\)/);
+  assert.match(plan,/growthPlanEmptyGuidance\("replies"\)/);
+  assert.match(plan,/onClick=\{onDiscover\}>Open Discover/);
+  assert.doesNotMatch(plan,/kind:\"draft\"/);
+});
+
+test("Composer AI controls use the shared readiness gate and cannot request AI while unavailable", () => {
+  const composer=page.slice(page.indexOf("function Composer"),page.indexOf("function ReplyComposer"));
+  assert.match(composer,/if\(!aiReady\|\|busy\)return/);
+  assert.match(composer,/\{aiReady&&<div className="ai-tools">/);
+  assert.match(page,/aiReady=\{aiReady\}/);
+  assert.match(page,/const aiReady=isAiContentReady\(runtimeConfig\)/);
 });
