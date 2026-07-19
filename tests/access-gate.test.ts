@@ -37,6 +37,9 @@ test("deployment posture permits public demo only while X is unconfigured", asyn
   const denied=await authorizeBrowserRead(request());
   assert.equal(denied?.status,503);
   assert.equal(((await denied?.json()) as {error:string}).error,"APP_ACCESS_TOKEN_REQUIRED");
+  const apiDenied=await authorizeBrowserOrApiRead(request({authorization:"Bearer api-token"}));
+  assert.equal(apiDenied?.status,503);
+  assert.equal(((await apiDenied?.json()) as {error:string}).error,"APP_ACCESS_TOKEN_REQUIRED");
 });
 
 test("configured protected instances keep browser, API, and cron authorities separate", async () => {
@@ -52,6 +55,8 @@ test("configured protected instances keep browser, API, and cron authorities sep
   assert.equal((await authorizeBrowserRead(request({authorization:"Bearer app-token"})))?.status,401);
   assert.equal((await authorizeBrowserRead(request({authorization:"Bearer api-token"})))?.status,401);
   assert.equal((await authorizeBrowserOrApiRead(request({authorization:"Bearer api-token"}))),null);
+  assert.equal((await authorizeBrowserOrApiRead(request({authorization:"Bearer wrong-token"})))?.status,401);
+  assert.equal((await authorizeBrowserOrApiRead(request()))?.status,401);
   assert.equal((await authorizeBrowserOrApiRead(request({authorization:"Bearer cron-token"})))?.status,401);
 });
 

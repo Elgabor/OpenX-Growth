@@ -71,8 +71,18 @@ test("browser, API, and cron authorities stay separate", async () => {
   });
   assert.equal(apiWrite.response.status, 201, JSON.stringify(apiWrite.body));
 
-  const apiOnBrowserOnly = await api("/api/x/status", { headers: { authorization: `Bearer ${apiToken}` } });
-  assert.equal(apiOnBrowserOnly.response.status, 401);
+  const apiStatus = await api("/api/x/status", { headers: { authorization: `Bearer ${apiToken}` } });
+  assert.equal(apiStatus.response.status, 200);
+  assert.equal(apiStatus.body.schema.state,"ready");
+  assert.equal(apiStatus.body.origin.currentMatchesCanonical,true);
+  const wrongApiStatus = await api("/api/x/status", { headers: { authorization: "Bearer wrong-token" } });
+  assert.equal(wrongApiStatus.response.status, 401);
+  const apiStatusMutation = await api("/api/x/status", {
+    method: "POST",
+    headers: { authorization: `Bearer ${apiToken}`, "content-type": "application/json" },
+    body: JSON.stringify({ intent: "reset_local_usage" }),
+  });
+  assert.equal(apiStatusMutation.response.status, 401);
   const cronOnApi = await api("/api/posts", { headers: { authorization: `Bearer ${cronToken}` } });
   assert.equal(cronOnApi.response.status, 401);
   const apiOnCron = await api("/api/cron/publish", { method: "POST", headers: { authorization: `Bearer ${apiToken}` } });

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deploymentPosture, protectedConfigSummary, publicConfig } from "../../../../lib/config";
-import { authorizeBrowserMutation, authorizeBrowserRead, getXSession } from "../../../../lib/security";
+import { authorizeBrowserMutation, authorizeBrowserOrApiRead, getXSession } from "../../../../lib/security";
 import { resolveStoredAuthorization } from "../../../../lib/session-store";
 import { getSchemaHealth, schemaErrorCode } from "../../../../lib/schema-health";
 import { canonicalOriginStatus, safeOriginDiagnostic } from "../../../../lib/canonical-origin";
@@ -29,7 +29,7 @@ export async function GET(request:NextRequest) {
   const now=Date.now();
   const schema=await getSchemaHealth();
   if(schema.state!=="ready")return NextResponse.json({error:schemaErrorCode(schema.state),schema},{status:503,headers:{"Cache-Control":"no-store"}});
-  const denied=await authorizeBrowserRead(request);if(denied)return denied;
+  const denied=await authorizeBrowserOrApiRead(request);if(denied)return denied;
   const posture=deploymentPosture();
   const authorization=posture==="demo"?{state:"disconnected" as const,session:null,lastVerifiedAt:undefined,lastVerifiedAccountId:undefined}:await resolveStoredAuthorization(await getXSession(request));
   const [usage,cache,status,lease]=await Promise.all([getUsage(now),readRetainedCache<CachedSync>("x-growth-sync"),readSyncStatus(),activeSyncLease(now)]);

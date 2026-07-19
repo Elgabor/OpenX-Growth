@@ -57,6 +57,21 @@ OAuth and refresh tokens are AES-GCM encrypted using `SESSION_SECRET` before D1 
 - A Cloudflare Worker-compatible deployment with a D1 binding named `DB`
 - X API credits for the endpoints you use
 
+## Guided setup (recommended)
+
+After forking and cloning the repository, install the locked dependencies and run the guided setup:
+
+```bash
+npm ci
+npm run setup
+```
+
+The eight-step wizard verifies the local prerequisites and Cloudflare login, creates or safely reuses D1, applies migrations, builds and deploys the Worker, generates missing secrets locally, and runs a protected healthcheck. Secret values are saved only to the gitignored `.env.local` with mode `600` and are sent to Wrangler through stdin; existing remote secrets are never rotated automatically.
+
+The X Developer Console step remains manual. The wizard prints the exact OAuth callback URL, required scopes, and the next steps for **Settings → Continue with X**. Re-run `npm run setup` after an interruption to resume from the existing configuration.
+
+The numbered sections below remain the manual reference and recovery path. The verified build requires GNU `timeout`; on macOS, install GNU coreutils and ensure its `timeout` command is available on `PATH` before running setup.
+
 ## 1. Fork and install
 
 Fork this repository, then:
