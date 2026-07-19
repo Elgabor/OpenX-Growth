@@ -19,9 +19,15 @@ export const SETUP_STEPS = Object.freeze([
 ]);
 
 const D1_ID_PATTERN = /^(?:[a-f\d]{32}|[a-f\d]{8}-[a-f\d]{4}-[1-5a-f\d][a-f\d]{3}-[89ab\d][a-f\d]{3}-[a-f\d]{12})$/i;
+const D1_PLACEHOLDER_IDS = new Set([
+  "00000000000000000000000000000000",
+  "00000000-0000-4000-8000-000000000000",
+]);
 
 export function isValidD1DatabaseId(value) {
-  return typeof value === "string" && D1_ID_PATTERN.test(value.trim());
+  if (typeof value !== "string") return false;
+  const candidate = value.trim().toLowerCase();
+  return D1_ID_PATTERN.test(candidate) && !D1_PLACEHOLDER_IDS.has(candidate);
 }
 
 export function generateSecretMaterial(randomBytes = nodeRandomBytes) {

@@ -294,7 +294,8 @@ test("malformed existing wrangler config is never overwritten or followed by D1 
 
 test("parsable wrangler config without a valid DB id requires explicit replacement approval",async(t)=>{
   const root=await fixtureRoot();t.after(()=>rm(root,{recursive:true,force:true}));
-  const placeholder=await readFile(join(root,"wrangler.example.jsonc"),"utf8");
+  const placeholder=(await readFile(join(root,"wrangler.example.jsonc"),"utf8"))
+    .replace("YOUR_D1_DATABASE_ID","00000000-0000-4000-8000-000000000000");
   await writeFile(join(root,"wrangler.jsonc"),placeholder);
   const declined=createRunner();
   await expectFailure({root,runner:declined.runner,prompt:createPrompt().prompt,httpRunner:healthyHttp,nodeVersion:"v22.13.0"},/Existing wrangler.jsonc was left unchanged/);

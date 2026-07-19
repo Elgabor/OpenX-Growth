@@ -10,6 +10,7 @@ import {
   parseD1ListOutput,
   parseDeployOutput,
   parseEnvFile,
+  isValidD1DatabaseId,
   parseSecretListOutput,
   parseWranglerConfig,
   planSetupSteps,
@@ -19,6 +20,12 @@ import {
 } from "../scripts/cli/lib.mjs";
 
 const databaseId = "11111111-2222-4333-8444-555555555555";
+const placeholderDatabaseId = "00000000-0000-4000-8000-000000000000";
+
+test("D1 validation rejects syntactically valid placeholder identifiers",()=>{
+  assert.equal(isValidD1DatabaseId(databaseId),true);
+  assert.equal(isValidD1DatabaseId(placeholderDatabaseId),false);
+});
 
 test("secret material uses independent requested byte counts and base64 encoding", () => {
   const calls:number[]=[];
