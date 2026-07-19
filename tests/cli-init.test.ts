@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { commandStdinMode, runSetup, SetupFailure } from "../scripts/cli/init.mjs";
+import { defaultCommandRunner, runSetup, SetupFailure, wrapCommandForTerminal } from "../scripts/cli/init.mjs";
 
 const databaseId="11111111-2222-4333-8444-555555555555";
 const appUrl="https://openx-growth.fixture.workers.dev";
@@ -82,8 +82,32 @@ function healthyConfiguredHttp(url:string) {
 }
 
 test("normal Wrangler commands inherit the terminal while secret input uses a pipe",()=>{
-  assert.equal(commandStdinMode(""),"inherit");
-  assert.equal(commandStdinMode("secret-value\n"),"pipe");
+  assert.deepEqual(wrapCommandForTerminal("npm",["run","build"]),{
+    command:"/usr/bin/script",
+    args:["-q","/dev/null","npm","run","build"],
+  });
+});
+
+test("default runner preserves a TTY and sends secret input only after the hidden prompt",{timeout:5_000},async()=>{
+  const ttyProbe=await defaultCommandRunner({
+    command:process.execPath,
+    args:["-e",`process.stdout.write(JSON.stringify({stdin:Boolean(process.stdin.isTTY),stdout:Boolean(process.stdout.isTTY)}))`],
+    cwd:process.cwd(),
+  });
+  assert.equal(ttyProbe.code,0,JSON.stringify(ttyProbe));
+  assert.match(ttyProbe.stdout,/"stdin":true/);
+  assert.match(ttyProbe.stdout,/"stdout":true/);
+
+  const secret="runner-regression-secret";
+  const secretProbe=await defaultCommandRunner({
+    command:process.execPath,
+    args:["-e",`process.stdin.setRawMode(true);process.stdin.resume();process.stdout.write("Enter a secret value:");process.stdin.once("data",()=>{process.stdout.write(" received");process.exit(0)})`],
+    cwd:process.cwd(),
+    input:`${secret}\n`,
+  });
+  assert.equal(secretProbe.code,0,JSON.stringify(secretProbe));
+  assert.match(secretProbe.stdout,/received/);
+  assert.equal(`${secretProbe.stdout}\n${secretProbe.stderr}`.includes(secret),false);
 });
 
 async function captureRun(options:Parameters<typeof runSetup>[0]) {

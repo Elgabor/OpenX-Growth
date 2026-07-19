@@ -2,8 +2,9 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { access, chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -46,25 +47,96 @@ export class SetupFailure extends Error {
   }
 }
 
-export function commandStdinMode(input = "") {
-  return input ? "pipe" : "inherit";
+export function wrapCommandForTerminal(command, args = [], inputPath = "") {
+  if (inputPath) {
+    return {
+      command: "/bin/sh",
+      args: [
+        "-c",
+        'input_path=$1; shift; /bin/cat "$input_path" | /usr/bin/script -q /dev/null "$@"',
+        "openx-setup",
+        inputPath,
+        command,
+        ...args,
+      ],
+    };
+  }
+  return { command: "/usr/bin/script", args: ["-q", "/dev/null", command, ...args] };
 }
 
+async function createSecretInputFifo() {
+  const directory = await mkdtemp(join(tmpdir(), "openx-setup-stdin-"));
+  const path = join(directory, "input");
+  try {
+    const created = await new Promise((resolveCreated) => {
+      const child = spawn("/usr/bin/mkfifo", [path], { stdio: "ignore" });
+      child.on("error", (error) => resolveCreated({ code: 127, error }));
+      child.on("close", (code) => resolveCreated({ code: code ?? 1 }));
+    });
+    if (created.code !== 0) throw created.error ?? new Error("mkfifo failed");
+    await chmod(path, 0o600);
+    const handle = await open(path, fsConstants.O_RDWR);
+    return { directory, handle, path };
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/** @param {{ command: string, args?: string[], cwd: string, input?: string }} options */
 export async function defaultCommandRunner({ command, args = [], cwd, input = "" }) {
+  let fifo = null;
+  if (input) {
+    try { fifo = await createSecretInputFifo(); }
+    catch (error) { return { code: 127, stdout: "", stderr: `Could not create protected command input: ${error.message}` }; }
+  }
   return new Promise((resolveRun) => {
-    const child = spawn(command, args, {
+    const wrapped = wrapCommandForTerminal(command, args, fifo?.path);
+    const child = spawn(wrapped.command, wrapped.args, {
       cwd,
       env: process.env,
       shell: false,
-      stdio: [commandStdinMode(input), "pipe", "pipe"],
+      stdio: [!fifo && process.stdin.isTTY ? "inherit" : "ignore", "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += String(chunk); });
-    child.stderr.on("data", (chunk) => { stderr += String(chunk); });
-    child.on("error", (error) => resolveRun({ code: 127, stdout, stderr: `${stderr}${error.message}` }));
-    child.on("close", (code, signal) => resolveRun({ code: code ?? (signal ? 130 : 1), signal, stdout, stderr }));
-    if (input) child.stdin.end(input);
+    let inputSent = false;
+    let settled = false;
+    const redactInput = (value) => {
+      const secret = input.replace(/[\r\n]+$/, "");
+      return secret ? value.replaceAll(secret, "•••") : value;
+    };
+    const sendInputAfterHiddenPrompt = () => {
+      if (!input || inputSent || !/Enter a secret value:/i.test(`${stdout}\n${stderr}`)) return;
+      inputSent = true;
+      void fifo.handle.write(input)
+        .then(async () => {
+          await fifo.handle.close();
+          fifo.handle = null;
+        })
+        .catch((error) => {
+          child.kill();
+          stderr += `Could not send protected command input: ${error.message}`;
+        });
+    };
+    const finish = async (result) => {
+      if (settled) return;
+      settled = true;
+      if (fifo) {
+        await fifo.handle?.close().catch(() => {});
+        await rm(fifo.directory, { recursive: true, force: true }).catch(() => {});
+      }
+      resolveRun(result);
+    };
+    child.stdout.on("data", (chunk) => { stdout += String(chunk); sendInputAfterHiddenPrompt(); });
+    child.stderr.on("data", (chunk) => { stderr += String(chunk); sendInputAfterHiddenPrompt(); });
+    child.on("error", (error) => void finish({ code: 127, stdout: redactInput(stdout), stderr: redactInput(`${stderr}${error.message}`) }));
+    child.on("close", (code, signal) => void finish({
+        code: code ?? (signal ? 130 : 1),
+        signal,
+        stdout: redactInput(stdout),
+        stderr: redactInput(stderr),
+      }));
   });
 }
 
