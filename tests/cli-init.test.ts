@@ -172,6 +172,21 @@ test("successful re-run preserves database, deployment, and remote secrets witho
   assert.match(second.stdout.join("\n"),/already set — not rotated/);
 });
 
+test("declining a stale deployment URL discovers and persists the current workers.dev route",async(t)=>{
+  const root=await fixtureRoot();t.after(()=>rm(root,{recursive:true,force:true}));
+  const {state,runner}=createRunner();
+  await captureRun({root,runner,prompt:createPrompt().prompt,httpRunner:healthyHttp,randomBytes:(bytes:number)=>Buffer.alloc(bytes,7),nodeVersion:"v22.13.0"});
+  const stale="https://account.workers.dev";
+  const source=await readFile(join(root,"wrangler.jsonc"),"utf8");
+  await writeFile(join(root,"wrangler.jsonc"),source.replace(appUrl,stale));
+  state.calls.length=0;
+  const prompt=createPrompt({"Reuse the deployed instance":"no"});
+  const resumed=await captureRun({root,runner,prompt:prompt.prompt,httpRunner:healthyHttp,nodeVersion:"v22.13.0"});
+  assert.equal(resumed.result.appUrl,appUrl);
+  assert.equal(state.calls.filter((call)=>commandKey(call)==="npm run deploy:cloudflare").length,2);
+  assert.equal((await readFile(join(root,"wrangler.jsonc"),"utf8")).includes(appUrl),true);
+});
+
 test("D1 name conflict reuses the existing database without deleting data",async(t)=>{
   const root=await fixtureRoot();t.after(()=>rm(root,{recursive:true,force:true}));
   const {state,runner}=createRunner({overrides:{

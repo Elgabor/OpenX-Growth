@@ -83,8 +83,8 @@ async function createSecretInputFifo() {
   }
 }
 
-/** @param {{ command: string, args?: string[], cwd: string, input?: string }} options */
-export async function defaultCommandRunner({ command, args = [], cwd, input = "" }) {
+/** @param {{ command: string, args?: string[], cwd: string, input?: string, streamOutput?: boolean }} options */
+export async function defaultCommandRunner({ command, args = [], cwd, input = "", streamOutput = false }) {
   let fifo = null;
   if (input) {
     try { fifo = await createSecretInputFifo(); }
@@ -128,8 +128,16 @@ export async function defaultCommandRunner({ command, args = [], cwd, input = ""
       }
       resolveRun(result);
     };
-    child.stdout.on("data", (chunk) => { stdout += String(chunk); sendInputAfterHiddenPrompt(); });
-    child.stderr.on("data", (chunk) => { stderr += String(chunk); sendInputAfterHiddenPrompt(); });
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+      if (streamOutput && !input) process.stdout.write(chunk);
+      sendInputAfterHiddenPrompt();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+      if (streamOutput && !input) process.stderr.write(chunk);
+      sendInputAfterHiddenPrompt();
+    });
     child.on("error", (error) => void finish({ code: 127, stdout: redactInput(stdout), stderr: redactInput(`${stderr}${error.message}`) }));
     child.on("close", (code, signal) => void finish({
         code: code ?? (signal ? 130 : 1),
@@ -249,8 +257,8 @@ export async function runSetup(options = {}) {
 
   const out = (value = "") => stdout(formatter.format(value));
   const err = (value = "") => stderr(formatter.format(value));
-  const run = async (command, args = [], { input = "" } = {}) => {
-    const result = await runner({ command, args, cwd: root, input });
+  const run = async (command, args = [], { input = "", streamOutput = false } = {}) => {
+    const result = await runner({ command, args, cwd: root, input, streamOutput });
     return { code: Number(result?.code ?? 1), signal: result?.signal, stdout: String(result?.stdout ?? ""), stderr: String(result?.stderr ?? "") };
   };
   const requireRun = async (command, args, failureMessage, optionsForRun = {}) => {
@@ -310,7 +318,7 @@ export async function runSetup(options = {}) {
     const whoami = await run("npx", ["wrangler", "whoami"]);
     if (whoami.code === 0) return { status: "skipped", note: "Cloudflare session is active" };
     out("Cloudflare login is required; Wrangler will open its browser flow.");
-    const login = await run("npx", ["wrangler", "login"]);
+    const login = await run("npx", ["wrangler", "login"], { streamOutput: true });
     if (login.code !== 0) throw new SetupFailure("Cloudflare login failed or was declined. Run `npx wrangler login` manually, then re-run setup.");
     const verified = await run("npx", ["wrangler", "whoami"]);
     if (verified.code !== 0) throw new SetupFailure("Cloudflare login could not be verified. Run `npx wrangler whoami`, fix authentication, then re-run setup.");
@@ -341,7 +349,7 @@ export async function runSetup(options = {}) {
     }
     const template = await readFile(paths.wranglerTemplate, "utf8");
     let databaseName = "openx-growth";
-    let result = await run("npx", ["wrangler", "d1", "create", databaseName]);
+    let result = await run("npx", ["wrangler", "d1", "create", databaseName], { streamOutput: true });
     let databaseId;
     if (result.code === 0) {
       databaseId = parseD1CreateOutput(`${result.stdout}\n${result.stderr}`).databaseId;
@@ -354,7 +362,7 @@ export async function runSetup(options = {}) {
         const alternate = await ask("Enter an alternate D1 database name [openx-growth-2]: ");
         databaseName = alternate || "openx-growth-2";
         if (!/^[a-z0-9][a-z0-9-]{0,62}$/i.test(databaseName)) throw new SetupFailure("D1 database names may contain only letters, numbers, and hyphens.");
-        result = await run("npx", ["wrangler", "d1", "create", databaseName]);
+        result = await run("npx", ["wrangler", "d1", "create", databaseName], { streamOutput: true });
         if (result.code !== 0) throw new SetupFailure(`D1 creation failed. No database was deleted.\n${formatter.format(result.stderr || result.stdout)}`);
         databaseId = parseD1CreateOutput(`${result.stdout}\n${result.stderr}`).databaseId;
       }
@@ -368,7 +376,7 @@ export async function runSetup(options = {}) {
   });
 
   await runStep(SETUP_STEPS[3], async () => {
-    await requireRun("npm", ["run", "db:migrate:remote"], "Remote D1 migrations failed. Verify the DB binding in wrangler.jsonc, then re-run `npm run db:migrate:remote` or setup; migrations are idempotent.");
+    await requireRun("npm", ["run", "db:migrate:remote"], "Remote D1 migrations failed. Verify the DB binding in wrangler.jsonc, then re-run `npm run db:migrate:remote` or setup; migrations are idempotent.", { streamOutput: true });
     return { status: "complete" };
   });
 
@@ -381,6 +389,7 @@ export async function runSetup(options = {}) {
         cachedSecretList = deployedProbe.stdout;
         return { status: "skipped", note: "existing deployment preserved" };
       }
+      appUrl = "";
     }
     let defaultWorkersDomain = !appUrl;
     if (!appUrl) {
@@ -393,13 +402,13 @@ export async function runSetup(options = {}) {
         await atomicWrite(paths.wrangler, wranglerSource);
       }
     }
-    await requireRun("npm", ["run", "build"], "Build failed. Fix the reported build error before deploying; no Worker deployment was attempted.");
-    const deployed = await requireRun("npm", ["run", "deploy:cloudflare"], "Cloudflare deploy failed. The D1 database remains intact; re-run setup to resume at deployment.");
+    await requireRun("npm", ["run", "build"], "Build failed. Fix the reported build error before deploying; no Worker deployment was attempted.", { streamOutput: true });
+    const deployed = await requireRun("npm", ["run", "deploy:cloudflare"], "Cloudflare deploy failed. The D1 database remains intact; re-run setup to resume at deployment.", { streamOutput: true });
     if (defaultWorkersDomain && !appUrl) {
       appUrl = parseDeployOutput(`${deployed.stdout}\n${deployed.stderr}`);
       wranglerSource = updateWranglerAppUrl(await readFile(paths.wrangler, "utf8"), appUrl);
       await atomicWrite(paths.wrangler, wranglerSource);
-      await requireRun("npm", ["run", "deploy:cloudflare"], "The APP_URL follow-up deploy failed. The first deployment and D1 database remain intact; re-run setup to resume.");
+      await requireRun("npm", ["run", "deploy:cloudflare"], "The APP_URL follow-up deploy failed. The first deployment and D1 database remain intact; re-run setup to resume.", { streamOutput: true });
     }
     return { status: "complete", note: `APP_URL configured as ${appUrl}` };
   });

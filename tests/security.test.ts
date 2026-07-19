@@ -106,6 +106,7 @@ test("release build disables local env files and privacy audit scans untracked w
   assert.match(build,/OPENX_DISABLE_ENV_FILES=1/);
   assert.match(build,/CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false/);
   assert.match(vite,/OPENX_DISABLE_ENV_FILES/);
+  assert.match(vite,/tests\/fixtures\/wrangler\.e2e\.jsonc/);
   assert.match(privacy,/--others/);
   assert.match(privacy,/--exclude-standard/);
 });

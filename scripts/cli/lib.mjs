@@ -99,9 +99,11 @@ export function parseSecretListOutput(output) {
 export function parseDeployOutput(output) {
   const text = String(output ?? "");
   const urls = text.match(/https:\/\/[a-z\d](?:[a-z\d-]*[a-z\d])?(?:\.[a-z\d](?:[a-z\d-]*[a-z\d])?)+(?::\d+)?(?:\/[^\s]*)?/gi) ?? [];
-  const workersUrl = urls.find((value) => {
-    try { return new URL(value).hostname.endsWith(".workers.dev"); } catch { return false; }
-  });
+  const workersUrl = urls
+    .filter((value) => {
+      try { return new URL(value).hostname.endsWith(".workers.dev"); } catch { return false; }
+    })
+    .sort((left, right) => new URL(right).hostname.split(".").length - new URL(left).hostname.split(".").length)[0];
   if (!workersUrl) throw new Error("Could not find a workers.dev URL in Wrangler deploy output");
   return normalizeOrigin(workersUrl);
 }

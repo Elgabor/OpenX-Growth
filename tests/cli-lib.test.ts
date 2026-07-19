@@ -49,6 +49,10 @@ test("D1 create and list parsers accept current Wrangler shapes",()=>{
 test("secret list and deploy parsers reject ambiguous output",()=>{
   assert.deepEqual([...parseSecretListOutput(JSON.stringify([{name:"SESSION_SECRET"},{name:"OPENX_API_TOKEN"}]))],["SESSION_SECRET","OPENX_API_TOKEN"]);
   assert.equal(parseDeployOutput("Deployed openx-growth\nhttps://openx-growth.account.workers.dev"),"https://openx-growth.account.workers.dev");
+  assert.equal(
+    parseDeployOutput("Registered https://account.workers.dev\nDeployed https://openx-growth.account.workers.dev"),
+    "https://openx-growth.account.workers.dev",
+  );
   assert.throws(()=>parseDeployOutput("Deployed to https://custom.example"),/workers.dev URL/);
 });
 
