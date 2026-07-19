@@ -11,7 +11,7 @@ function isPublicProviderHost(hostname:string) {
   if(host==="localhost"||host.endsWith(".localhost")||host.endsWith(".local")||host.endsWith(".internal")||host.endsWith(".home.arpa"))return false;
   const ipv4=host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)?.slice(1).map(Number);
   if(ipv4&&ipv4.every((part)=>part>=0&&part<=255))return !(ipv4[0]===10||ipv4[0]===127||ipv4[0]===0||(ipv4[0]===169&&ipv4[1]===254)||(ipv4[0]===172&&ipv4[1]>=16&&ipv4[1]<=31)||(ipv4[0]===192&&ipv4[1]===168)||(ipv4[0]===100&&ipv4[1]>=64&&ipv4[1]<=127)||ipv4[0]>=224);
-  if(host.includes(":"))return !(host==="::"||host==="::1"||host.startsWith("fc")||host.startsWith("fd")||host.startsWith("fe8")||host.startsWith("fe9")||host.startsWith("fea")||host.startsWith("feb"));
+  if(host.includes(":"))return !(host==="::"||host==="::1"||host.startsWith("::ffff:")||host.startsWith("fc")||host.startsWith("fd")||host.startsWith("fe8")||host.startsWith("fe9")||host.startsWith("fea")||host.startsWith("feb")||host.startsWith("ff"));
   return true;
 }
 const httpsUrl=z.string().trim().min(1).max(2_048).url().refine((value)=>{

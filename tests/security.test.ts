@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 process.env.SESSION_SECRET="test-only-session-secret-with-more-than-32-characters";
 
 test("sealed sessions do not expose plaintext",async()=>{
-  const {safeEqual,seal,unseal}=await import("../lib/security.ts");
+  const {hasBearerAuth,safeEqual,seal,unseal}=await import("../lib/security.ts");
   const value={accessToken:"private-access-token",refreshToken:"private-refresh-token",clientId:"client",expiresAt:123};
   const encrypted=await seal(value);
   assert.equal(encrypted.includes(value.accessToken),false);
@@ -14,6 +14,10 @@ test("sealed sessions do not expose plaintext",async()=>{
   assert.equal(await unseal("tampered.value"),null);
   assert.equal(await safeEqual("same-value","same-value"),true);
   assert.equal(await safeEqual("same-value","other-value"),false);
+  const request=(authorization:string)=>({headers:new Headers({authorization})});
+  assert.equal(await hasBearerAuth(request("Bearer same-value"),"same-value"),true);
+  assert.equal(await hasBearerAuth(request("Bearer other-value"),"same-value"),false);
+  assert.equal(await hasBearerAuth(request("Basic same-value"),"same-value"),false);
 });
 
 test("demo mode allows browsing without access token",async()=>{
@@ -155,7 +159,7 @@ test("managed settings accept public providers and reject private or malformed e
   const {runtimeSettingsInputSchema}=await import("../lib/runtime-settings.ts");
   const valid={section:"ai",baseUrl:"https://openrouter.ai/api/v1",model:"openai/gpt-5-mini",apiKey:"test-provider-key",contentApproved:false,repliesApproved:false};
   assert.equal(runtimeSettingsInputSchema.safeParse(valid).success,true);
-  for(const baseUrl of ["http://openrouter.ai/api/v1","https://127.0.0.1/v1","https://10.0.0.8/v1","https://provider.local/v1","https://user:password@example.com/v1","https://example.com/v1?token=secret"]){
+  for(const baseUrl of ["http://openrouter.ai/api/v1","https://127.0.0.1/v1","https://10.0.0.8/v1","https://[::ffff:127.0.0.1]/v1","https://[::ffff:10.0.0.1]/v1","https://[::ffff:c0a8:1]/v1","https://[fc00::1]/v1","https://[fe80::1]/v1","https://[ff00::1]/v1","https://provider.local/v1","https://user:password@example.com/v1","https://example.com/v1?token=secret"]){
     assert.equal(runtimeSettingsInputSchema.safeParse({...valid,baseUrl}).success,false,baseUrl);
   }
   assert.equal(runtimeSettingsInputSchema.safeParse({...valid,unexpected:"value"}).success,false);

@@ -6,12 +6,12 @@ import { getEffectiveConfig } from "../../../../lib/runtime-settings";
 import { deleteExpiredCache } from "../../../../lib/data";
 import { publishStoredPost } from "../../../../lib/publisher";
 import { redactPublishDetail } from "../../../../lib/publish-state";
-import { configuredAccessGateResponse, configuredInstanceResponse } from "../../../../lib/security";
+import { configuredAccessGateResponse, configuredInstanceResponse, hasBearerAuth } from "../../../../lib/security";
 
 export async function POST(request:NextRequest) {
   const unconfigured=await configuredInstanceResponse();if(unconfigured)return unconfigured;
   const blocked=await configuredAccessGateResponse();if(blocked)return blocked;
-  const secret=(await getEffectiveConfig()).cronSecret;if(!secret||request.headers.get("authorization")!==`Bearer ${secret}`)return NextResponse.json({error:"UNAUTHORIZED"},{status:401});
+  const secret=(await getEffectiveConfig()).cronSecret;if(!await hasBearerAuth(request,secret))return NextResponse.json({error:"UNAUTHORIZED"},{status:401});
   await deleteExpiredCache();
   const now=Date.now();
   const due=await getDb().select().from(posts).where(or(

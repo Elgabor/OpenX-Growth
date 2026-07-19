@@ -37,6 +37,11 @@ export async function safeEqual(left:string,right:string) {
   return difference===0;
 }
 
+export async function hasBearerAuth(request:Pick<NextRequest,"headers">,expected:string|undefined) {
+  const match=/^Bearer ([^\s]+)$/.exec(request.headers.get("authorization")??"");
+  return Boolean(expected&&match&&await safeEqual(match[1],expected));
+}
+
 export async function appAccessBinding(appAccessToken:string) {
   const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(`openx-app-access:${appAccessToken}`));
   return encode(new Uint8Array(digest));
@@ -54,7 +59,7 @@ export function requireCsrf(request:NextRequest) {
 
 export async function hasApiAuth(request:NextRequest) {
   const token=(await getEffectiveConfig()).apiToken;
-  return Boolean(token && request.headers.get("authorization") === `Bearer ${token}`);
+  return hasBearerAuth(request,token);
 }
 
 export async function isAccessProtected() {
