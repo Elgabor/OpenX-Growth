@@ -230,7 +230,7 @@ test("preflight failures are diagnostic and non-zero",async(t)=>{
 test("Cloudflare login refusal exits with manual remediation",async(t)=>{
   const root=await fixtureRoot();t.after(()=>rm(root,{recursive:true,force:true}));
   const fake=createRunner({overrides:{
-    "npx wrangler whoami":()=>({code:1,stderr:"not authenticated"}),
+    "npx wrangler whoami":()=>({code:0,stdout:"You are not authenticated. Please run `wrangler login`."}),
     "npx wrangler login":()=>({code:1,stderr:"declined"}),
   }});
   await expectFailure({root,runner:fake.runner,prompt:createPrompt().prompt,httpRunner:healthyHttp,nodeVersion:"v22.13.0"},/Cloudflare login failed/);

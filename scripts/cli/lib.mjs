@@ -108,6 +108,13 @@ export function parseDeployOutput(output) {
   return normalizeOrigin(workersUrl);
 }
 
+export function isWranglerAuthenticated(result) {
+  if (result?.code !== 0) return false;
+  const output = `${result?.stdout ?? ""}\n${result?.stderr ?? ""}`;
+  if (/not authenticated|not logged in|please run\s+[`'"]?wrangler login/i.test(output)) return false;
+  return /logged in|oauth token|api token|account id/i.test(output);
+}
+
 export function normalizeOrigin(value, { allowLoopbackHttp = true } = {}) {
   let url;
   try { url = new URL(String(value ?? "").trim()); } catch { throw new Error("Enter a valid absolute deployment origin"); }

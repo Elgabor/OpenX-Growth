@@ -6,6 +6,7 @@ import {
   generateSecretMaterial,
   generateWranglerConfig,
   isD1NameConflict,
+  isWranglerAuthenticated,
   parseD1CreateOutput,
   parseD1ListOutput,
   parseDeployOutput,
@@ -54,6 +55,14 @@ test("secret list and deploy parsers reject ambiguous output",()=>{
     "https://openx-growth.account.workers.dev",
   );
   assert.throws(()=>parseDeployOutput("Deployed to https://custom.example"),/workers.dev URL/);
+});
+
+test("Wrangler authentication detection fails closed on code-zero logout output",()=>{
+  assert.equal(isWranglerAuthenticated({code:0,stdout:"You are logged in with an OAuth Token"}),true);
+  assert.equal(isWranglerAuthenticated({code:0,stdout:"Account ID: fixture-account"}),true);
+  assert.equal(isWranglerAuthenticated({code:0,stdout:"You are not authenticated. Please run `wrangler login`."}),false);
+  assert.equal(isWranglerAuthenticated({code:0,stdout:""}),false);
+  assert.equal(isWranglerAuthenticated({code:1,stderr:"not authenticated"}),false);
 });
 
 test("wrangler generator preserves the template contract and writes valid JSONC",()=>{

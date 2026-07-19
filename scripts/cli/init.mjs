@@ -17,6 +17,7 @@ import {
   generateSecretValue,
   generateWranglerConfig,
   isD1NameConflict,
+  isWranglerAuthenticated,
   normalizeOrigin,
   parseD1CreateOutput,
   parseD1ListOutput,
@@ -355,12 +356,12 @@ export async function runSetup(options = {}) {
 
   await runStep(SETUP_STEPS[1], async () => {
     const whoami = await run("npx", ["wrangler", "whoami"]);
-    if (whoami.code === 0) return { status: "skipped", note: "Cloudflare session is active" };
+    if (isWranglerAuthenticated(whoami)) return { status: "skipped", note: "Cloudflare session is active" };
     out("Cloudflare login is required; Wrangler will open its browser flow.");
     const login = await run("npx", ["wrangler", "login"], { streamOutput: true });
     if (login.code !== 0) throw new SetupFailure("Cloudflare login failed or was declined. Run `npx wrangler login` manually, then re-run setup.");
     const verified = await run("npx", ["wrangler", "whoami"]);
-    if (verified.code !== 0) throw new SetupFailure("Cloudflare login could not be verified. Run `npx wrangler whoami`, fix authentication, then re-run setup.");
+    if (!isWranglerAuthenticated(verified)) throw new SetupFailure("Cloudflare login could not be verified. Run `npx wrangler whoami`, fix authentication, then re-run setup.");
     return { status: "complete" };
   });
 
