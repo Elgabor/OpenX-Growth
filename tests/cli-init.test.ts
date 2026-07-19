@@ -384,5 +384,5 @@ test("setup help and README explain operator input, generated files, and every s
     "SYNC_TTL_SECONDS","MAX_DAILY_X_RESOURCES","MAX_DAILY_X_WRITES","MAX_DAILY_X_READS","OPENX_BASE_URL",
   ])assert.ok(readme.includes("`"+name+"`"),name);
   assert.doesNotMatch(envExample,/^AI_PROVIDER=/m);
-  assert.match(readme,/putting an optional value only in local `\.env\.local` does not update an already deployed Worker/i);
+  assert.match(readme,/Settings overrides take effect without editing `wrangler\.jsonc` or redeploying/i);
 });

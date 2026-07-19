@@ -6,6 +6,7 @@ import {
   AUTH_COOKIE,
   authorizeBrowserOrApiRead,
   authorizeBrowserRead,
+  createAppAuthCookie,
   hasAppAccess,
   seal,
 } from "../lib/security.ts";
@@ -66,9 +67,13 @@ test("browser access rejects expired or tampered cookies", async () => {
     SESSION_SECRET:"test-session-secret-with-more-than-thirty-two-characters",
     APP_ACCESS_TOKEN:"app-token",
   });
-  const valid=await seal({authorized:true,expiresAt:Date.now()+60_000});
-  const expired=await seal({authorized:true,expiresAt:Date.now()-1});
+  const valid=await createAppAuthCookie("app-token",Date.now()+60_000);
+  const expired=await createAppAuthCookie("app-token",Date.now()-1);
+  const stale=await createAppAuthCookie("old-app-token",Date.now()+60_000);
+  const legacy=await seal({authorized:true,expiresAt:Date.now()+60_000});
   assert.equal(await hasAppAccess(request({cookies:{[AUTH_COOKIE]:valid}})),true);
   assert.equal(await hasAppAccess(request({cookies:{[AUTH_COOKIE]:expired}})),false);
   assert.equal(await hasAppAccess(request({cookies:{[AUTH_COOKIE]:`${valid}tampered`}})),false);
+  assert.equal(await hasAppAccess(request({cookies:{[AUTH_COOKIE]:stale}})),false);
+  assert.equal(await hasAppAccess(request({cookies:{[AUTH_COOKIE]:legacy}})),false);
 });

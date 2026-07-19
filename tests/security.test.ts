@@ -149,3 +149,27 @@ test("protected runtime configuration serializes labels and booleans without sec
   });
   for(const secret of [process.env.X_CLIENT_ID,process.env.X_CLIENT_SECRET,process.env.SESSION_SECRET,process.env.APP_ACCESS_TOKEN,process.env.AI_BASE_URL,process.env.AI_API_KEY])assert.ok(secret&&!serialized.includes(secret));
 });
+
+test("managed settings accept public providers and reject private or malformed endpoints",async()=>{
+  const {runtimeSettingsInputSchema}=await import("../lib/runtime-settings.ts");
+  const valid={section:"ai",baseUrl:"https://openrouter.ai/api/v1",model:"openai/gpt-5-mini",apiKey:"test-provider-key",contentApproved:false,repliesApproved:false};
+  assert.equal(runtimeSettingsInputSchema.safeParse(valid).success,true);
+  for(const baseUrl of ["http://openrouter.ai/api/v1","https://127.0.0.1/v1","https://10.0.0.8/v1","https://provider.local/v1","https://user:password@example.com/v1","https://example.com/v1?token=secret"]){
+    assert.equal(runtimeSettingsInputSchema.safeParse({...valid,baseUrl}).success,false,baseUrl);
+  }
+  assert.equal(runtimeSettingsInputSchema.safeParse({...valid,unexpected:"value"}).success,false);
+});
+
+test("settings API is browser-only, CSRF-protected, bounded, encrypted, and never returns secrets",()=>{
+  const route=readFileSync(new URL("../app/api/settings/route.ts",import.meta.url),"utf8");
+  const runtime=readFileSync(new URL("../lib/runtime-settings.ts",import.meta.url),"utf8");
+  assert.match(route,/authorizeSettingsRead/);
+  assert.match(route,/authorizeSettingsMutation/);
+  assert.match(route,/createAppAuthCookie/);
+  assert.match(route,/16_384/);
+  assert.doesNotMatch(route,/console\.(?:log|error|warn)/);
+  assert.match(runtime,/sealedValue=await seal\(parsed\)/);
+  assert.doesNotMatch(runtime,/apiKey:config\.aiApiKey/);
+  assert.doesNotMatch(runtime,/clientSecret:config\.xClientSecret/);
+  assert.doesNotMatch(runtime,/appAccessToken:config\.appAccessToken/);
+});

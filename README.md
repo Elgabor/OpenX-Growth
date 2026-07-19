@@ -14,7 +14,7 @@ OpenX Growth connects to the official X API, analyzes the accounts you follow an
 - **Official APIs only:** no scraping or browser automation.
 - **Human-controlled publishing:** no automatic replies or unsolicited DMs.
 - **No telemetry:** the project sends data only to X and providers you configure.
-- **Fork-first secrets:** credentials live in deployment secrets, never in the browser or repository.
+- **Protected secrets:** the installation key lives in deployment secrets; operational keys entered in the same-origin Settings page are encrypted before D1 storage and are never returned to the browser.
 - **Honest state:** the UI labels sample data as `DEMO DATA` and connected results as `LIVE FROM X`.
 
 ## Features
@@ -72,6 +72,8 @@ The X Developer Console step remains manual. The wizard prints the exact OAuth c
 
 You do not need to create `.env.local` or `wrangler.jsonc` before using the wizard. It creates both as local, gitignored files. The wizard asks only for a deployment URL choice, `X_CLIENT_ID`, and the optional `X_CLIENT_SECRET`; it generates the four application secrets itself. It never asks for an X access token.
 
+Cloudflare is the default host and database provider for each self-hosted instance: the Worker runs the application and D1 stores its data. You use the Cloudflare login during installation and deployment. After that, normal configuration happens inside **Settings**; you do not need to open the Cloudflare dashboard to add an OpenRouter key, change AI options, evergreen behavior, cache duration, local limits, or integration tokens.
+
 The numbered sections below remain the manual reference and recovery path. The verified build requires GNU `timeout`. On macOS:
 
 ```bash
@@ -127,30 +129,30 @@ tweet.read tweet.write users.read offline.access
 
 ## 3. Configure environment variables
 
-See [.env.example](.env.example). The guided setup creates `.env.local`, detects `APP_URL`, generates the four independent application secrets, and uploads the required production values to Cloudflare. A manual installation must provide the required values itself.
+See [.env.example](.env.example). The guided setup creates `.env.local`, detects `APP_URL`, generates the four independent application secrets, and uploads the bootstrap values to Cloudflare. After the first protected sign-in, operational configuration is managed from the application Settings page and stored encrypted in D1. Environment variables remain fallback defaults and a manual recovery path.
 
 | Variable | Required? | Who sets it | Purpose |
 | --- | --- | --- | --- |
 | `APP_URL` | Production | Wizard or operator | Canonical public origin with no trailing slash. It must match the X website URL and OAuth callback origin. |
-| `X_CLIENT_ID` | X connection | Operator | OAuth 2.0 Client ID from the X Developer Console. The wizard asks for it. |
-| `X_CLIENT_SECRET` | Sometimes | Operator | Only for a confidential X Web App client. Leave empty for a public PKCE client. Input is hidden. |
+| `X_CLIENT_ID` | X connection | Settings or operator | OAuth 2.0 Client ID from the X Developer Console. Editable in **Settings → X account**. |
+| `X_CLIENT_SECRET` | Sometimes | Settings or operator | Only for a confidential X Web App client. Leave empty for a public PKCE client. Stored encrypted when entered in Settings. |
 | `SESSION_SECRET` | Configured instance | Wizard | Encrypts OAuth tokens stored in D1. Generated from 48 random bytes. |
-| `APP_ACCESS_TOKEN` | Configured instance | Wizard | Protects browser access to the instance. Generated from 32 random bytes. |
-| `CRON_SECRET` | Scheduler endpoint | Wizard | Protects `POST /api/cron/publish`. Generated even if scheduling is not enabled yet. |
-| `OPENX_API_TOKEN` | REST, MCP and healthcheck | Wizard | Separate bearer token for REST/MCP access and the protected setup healthcheck. |
-| `AI_BASE_URL` | Optional AI | Operator | Base URL of an OpenAI-compatible provider. Defaults to the OpenAI API. |
-| `AI_API_KEY` | Optional AI | Operator | Provider credential. AI remains disabled when this is empty. |
-| `AI_MODEL` | Optional AI | Operator | Provider model identifier. Defaults to `gpt-5-mini`. |
-| `X_AI_CONTENT_APPROVED` | Optional AI | Operator | Policy gate for AI-assisted content. Keep `false` until the approved X use case permits it. |
-| `X_AI_REPLIES_APPROVED` | Optional AI | Operator | Separate policy gate for AI-assisted replies. Keep `false` unless explicitly permitted. |
-| `ENABLE_EVERGREEN` | Optional | Operator | Enables repeated scheduled publishing. Defaults to `false`. |
-| `SYNC_TTL_SECONDS` | Optional | Operator | Cache lifetime for X intelligence syncs. Defaults to `900`. |
-| `MAX_DAILY_X_RESOURCES` | Optional | Operator | Local daily cap for successfully returned X data items. Defaults to `500`. |
-| `MAX_DAILY_X_WRITES` | Optional | Operator | Local daily cap for outbound post/reply attempts. Defaults to `50`. |
+| `APP_ACCESS_TOKEN` | Configured instance | Wizard, then Settings | Protects browser access. Replaceable in **Settings → Security**; the existing value is never displayed. |
+| `CRON_SECRET` | Scheduler endpoint | Wizard, then Settings | Protects `POST /api/cron/publish`. Replaceable in **Settings → Publishing**. |
+| `OPENX_API_TOKEN` | REST, MCP and healthcheck | Wizard, then Settings | Separate bearer token for REST/MCP access. Replaceable in **Settings → Publishing**. |
+| `AI_BASE_URL` | Optional AI | Settings | OpenRouter, OpenAI, or a public HTTPS OpenAI-compatible provider URL. |
+| `AI_API_KEY` | Optional AI | Settings | Write-only provider credential stored encrypted in D1. AI remains disabled when empty. |
+| `AI_MODEL` | Optional AI | Settings | Provider model identifier. Defaults to `gpt-5-mini`. |
+| `X_AI_CONTENT_APPROVED` | Optional AI | Settings | Policy gate for AI-assisted content. Keep disabled until the approved X use case permits it. |
+| `X_AI_REPLIES_APPROVED` | Optional AI | Settings | Separate policy gate for AI-assisted replies. Keep disabled unless explicitly permitted. |
+| `ENABLE_EVERGREEN` | Optional | Settings | Enables repeated scheduled publishing. Defaults to `false`. |
+| `SYNC_TTL_SECONDS` | Optional | Settings | Cache lifetime for X intelligence syncs. Defaults to `900`. |
+| `MAX_DAILY_X_RESOURCES` | Optional | Settings → Limits | Local daily cap for successfully returned X data items. Defaults to `500`. |
+| `MAX_DAILY_X_WRITES` | Optional | Settings → Limits | Local daily cap for outbound post/reply attempts. Defaults to `50`. |
 | `MAX_DAILY_X_READS` | Legacy only | Existing deployments | Backward-compatible fallback. New installations should use `MAX_DAILY_X_RESOURCES`. |
 | `OPENX_BASE_URL` | MCP process only | Operator | URL used by `npm run mcp`. It is not a Worker variable; pass it in the MCP process environment. |
 
-The v1 wizard uploads only the required generated secrets plus the supplied X client credentials. It leaves optional AI, evergreen, cache, and limit overrides at their safe defaults. To enable an optional production setting, add non-secret values such as `AI_MODEL` or `MAX_DAILY_X_RESOURCES` under `vars` in the generated `wrangler.jsonc`, then deploy again. Upload `AI_API_KEY` as a Wrangler secret with `npx wrangler secret put AI_API_KEY --config wrangler.jsonc`; never put it in `wrangler.jsonc`. Putting an optional value only in local `.env.local` does not update an already deployed Worker.
+The wizard establishes a protected installation. From then on use the clearly separated **Settings** sections: **X account**, **AI provider**, **Publishing**, **Limits**, **Security**, and **Data & privacy**. Settings overrides take effect without editing `wrangler.jsonc` or redeploying. Secret fields are write-only, encrypted with `SESSION_SECRET`, and excluded from Settings responses and exports. `SESSION_SECRET` itself remains an installation-only bootstrap secret because OpenX needs it before it can encrypt anything else; changing it makes existing ciphertext unreadable. `APP_URL` remains deployment-owned because it defines the public OAuth origin.
 
 `APP_ACCESS_TOKEN` may be empty only while the instance is an unconfigured, write-disabled public demo. As soon as `X_CLIENT_ID` and `SESSION_SECRET` configure the instance, a missing application token fails closed before any application data, OAuth flow, API token or scheduler token is accepted.
 
@@ -186,7 +188,7 @@ Set production secrets with `wrangler secret put NAME`; do not place them in `wr
 npm run dev
 ```
 
-Open the local URL. The dashboard loads immediately in unconfigured, write-disabled demo mode. Before setting `X_CLIENT_ID` and `SESSION_SECRET`, also set `APP_ACCESS_TOKEN`; restart the dev server, log in, then use **Settings → Continue with X**.
+Open the local URL. The dashboard loads immediately in unconfigured, write-disabled demo mode. Before setting `X_CLIENT_ID` and `SESSION_SECRET`, also set `APP_ACCESS_TOKEN`; restart the dev server and log in. Then use **Settings → X account** to enter or change the X Client ID and continue with X.
 
 ## 6. Scheduler
 
@@ -206,7 +208,7 @@ Publishing uses expiring conditional leases. For threads, each confirmed X ident
 
 ## AI features and X approval
 
-AI generation is **off by default** and treated as a separate, opt-in use case. Confirm that your declared X use case, the current developer agreement and any approval applicable to your account permit it before setting either flag:
+AI generation is **off by default** and treated as a separate, opt-in use case. Configure it in **Settings → AI provider**. For OpenRouter, select OpenRouter, paste the key, enter the provider model ID, choose the approval toggles, and save; no Cloudflare dashboard change or redeploy is required. Confirm that your declared X use case, the current developer agreement and any approval applicable to your account permit it before enabling either approval:
 
 ```dotenv
 AI_API_KEY=your_provider_key
@@ -235,7 +237,7 @@ MAX_DAILY_X_WRITES=50
 
 Each outbound call increments the request count. Reads reserve their requested worst-case resource count atomically, then reconcile to successfully returned users/posts; failed calls and `429` responses consume zero resources. Every outbound post/reply attempt consumes one write unit regardless of provider status, and a retry is a separate request and write attempt. `MAX_DAILY_X_READS` remains a legacy fallback when the resource variable is unset.
 
-Tune these local limits below your paid plan. A manual forced sync bypasses cache but still counts against the budget. The X provider console spend limit remains the external hard backstop; local counters cannot replace it.
+Tune these local limits in **Settings → Limits** below your paid plan. A manual forced sync bypasses cache but still counts against the budget. The X provider console spend limit remains the external hard backstop; local counters cannot replace it.
 
 ## REST API
 

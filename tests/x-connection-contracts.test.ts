@@ -35,10 +35,12 @@ test("render and cache reads cannot invoke explicit X or AI operations",()=>{
   assert.doesNotMatch(getHandler,/getXTransport|refreshXAccessToken|writeCache|reserveXUsage/);
 });
 
-test("quick checklist derives publish completion from stored published content",()=>{
+test("limits live inside Settings and are not duplicated in the primary sidebar",()=>{
   const page=readFileSync(new URL("../app/page.tsx",import.meta.url),"utf8");
-  assert.match(page,/published=\{content\.some\(\(item\)=>item\.status==="Published"\)\}/);
-  assert.match(page,/<li className=\{published\?"done":""\}>Content → create draft → publish test<\/li>/);
+  assert.doesNotMatch(page,/"Credits & limits" as View/);
+  assert.match(page,/\{id:"limits",label:"Limits"/);
+  assert.match(page,/selected==="limits"/);
+  assert.match(page,/openSettings\("limits"\)/);
 });
 
 test("explicit sync is mutation-authorized, idempotent, leased, and preflighted before transport",()=>{
