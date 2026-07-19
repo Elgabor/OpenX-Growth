@@ -70,7 +70,16 @@ The eight-step wizard verifies the local prerequisites and Cloudflare login, cre
 
 The X Developer Console step remains manual. The wizard prints the exact OAuth callback URL, required scopes, and the next steps for **Settings → Continue with X**. Re-run `npm run setup` after an interruption to resume from the existing configuration.
 
-The numbered sections below remain the manual reference and recovery path. The verified build requires GNU `timeout`; on macOS, install GNU coreutils and ensure its `timeout` command is available on `PATH` before running setup.
+You do not need to create `.env.local` or `wrangler.jsonc` before using the wizard. It creates both as local, gitignored files. The wizard asks only for a deployment URL choice, `X_CLIENT_ID`, and the optional `X_CLIENT_SECRET`; it generates the four application secrets itself. It never asks for an X access token.
+
+The numbered sections below remain the manual reference and recovery path. The verified build requires GNU `timeout`. On macOS:
+
+```bash
+brew install coreutils
+export PATH="$(brew --prefix coreutils)/libexec/gnubin:$PATH"
+```
+
+Run `npm run setup -- --help` to see prerequisites and exactly what the wizard creates before starting.
 
 ## 1. Fork and install
 
@@ -118,16 +127,30 @@ tweet.read tweet.write users.read offline.access
 
 ## 3. Configure environment variables
 
-See [.env.example](.env.example). At minimum, production needs:
+See [.env.example](.env.example). The guided setup creates `.env.local`, detects `APP_URL`, generates the four independent application secrets, and uploads the required production values to Cloudflare. A manual installation must provide the required values itself.
 
-```dotenv
-APP_URL=https://YOUR_DEPLOYMENT_HOST
-X_CLIENT_ID=your_oauth_2_client_id
-SESSION_SECRET=a_random_value_with_at_least_32_characters
-APP_ACCESS_TOKEN=a_distinct_random_access_token
-CRON_SECRET=
-OPENX_API_TOKEN=
-```
+| Variable | Required? | Who sets it | Purpose |
+| --- | --- | --- | --- |
+| `APP_URL` | Production | Wizard or operator | Canonical public origin with no trailing slash. It must match the X website URL and OAuth callback origin. |
+| `X_CLIENT_ID` | X connection | Operator | OAuth 2.0 Client ID from the X Developer Console. The wizard asks for it. |
+| `X_CLIENT_SECRET` | Sometimes | Operator | Only for a confidential X Web App client. Leave empty for a public PKCE client. Input is hidden. |
+| `SESSION_SECRET` | Configured instance | Wizard | Encrypts OAuth tokens stored in D1. Generated from 48 random bytes. |
+| `APP_ACCESS_TOKEN` | Configured instance | Wizard | Protects browser access to the instance. Generated from 32 random bytes. |
+| `CRON_SECRET` | Scheduler endpoint | Wizard | Protects `POST /api/cron/publish`. Generated even if scheduling is not enabled yet. |
+| `OPENX_API_TOKEN` | REST, MCP and healthcheck | Wizard | Separate bearer token for REST/MCP access and the protected setup healthcheck. |
+| `AI_BASE_URL` | Optional AI | Operator | Base URL of an OpenAI-compatible provider. Defaults to the OpenAI API. |
+| `AI_API_KEY` | Optional AI | Operator | Provider credential. AI remains disabled when this is empty. |
+| `AI_MODEL` | Optional AI | Operator | Provider model identifier. Defaults to `gpt-5-mini`. |
+| `X_AI_CONTENT_APPROVED` | Optional AI | Operator | Policy gate for AI-assisted content. Keep `false` until the approved X use case permits it. |
+| `X_AI_REPLIES_APPROVED` | Optional AI | Operator | Separate policy gate for AI-assisted replies. Keep `false` unless explicitly permitted. |
+| `ENABLE_EVERGREEN` | Optional | Operator | Enables repeated scheduled publishing. Defaults to `false`. |
+| `SYNC_TTL_SECONDS` | Optional | Operator | Cache lifetime for X intelligence syncs. Defaults to `900`. |
+| `MAX_DAILY_X_RESOURCES` | Optional | Operator | Local daily cap for successfully returned X data items. Defaults to `500`. |
+| `MAX_DAILY_X_WRITES` | Optional | Operator | Local daily cap for outbound post/reply attempts. Defaults to `50`. |
+| `MAX_DAILY_X_READS` | Legacy only | Existing deployments | Backward-compatible fallback. New installations should use `MAX_DAILY_X_RESOURCES`. |
+| `OPENX_BASE_URL` | MCP process only | Operator | URL used by `npm run mcp`. It is not a Worker variable; pass it in the MCP process environment. |
+
+The v1 wizard uploads only the required generated secrets plus the supplied X client credentials. It leaves optional AI, evergreen, cache, and limit overrides at their safe defaults. To enable an optional production setting, add non-secret values such as `AI_MODEL` or `MAX_DAILY_X_RESOURCES` under `vars` in the generated `wrangler.jsonc`, then deploy again. Upload `AI_API_KEY` as a Wrangler secret with `npx wrangler secret put AI_API_KEY --config wrangler.jsonc`; never put it in `wrangler.jsonc`. Putting an optional value only in local `.env.local` does not update an already deployed Worker.
 
 `APP_ACCESS_TOKEN` may be empty only while the instance is an unconfigured, write-disabled public demo. As soon as `X_CLIENT_ID` and `SESSION_SECRET` configure the instance, a missing application token fails closed before any application data, OAuth flow, API token or scheduler token is accepted.
 
@@ -135,7 +158,7 @@ Do not prefix secret variables with `NEXT_PUBLIC_`.
 
 ## 4. Database
 
-Create a D1 database and bind it as `DB`. Apply the migrations in `drizzle/` using your hosting workflow. With Wrangler:
+Create a D1 database and bind it exactly as `DB` (uppercase). Values such as `openx_growth` are database names or custom bindings and will not work with the included `npm run db:migrate:*` scripts. Apply the migrations in `drizzle/` using your hosting workflow. With Wrangler:
 
 ```bash
 npx wrangler d1 migrations apply YOUR_DATABASE --local

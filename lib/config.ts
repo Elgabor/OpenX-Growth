@@ -19,7 +19,6 @@ export const appConfig = () => ({
   cronSecret: env("CRON_SECRET"),
   apiToken: env("OPENX_API_TOKEN"),
   appAccessToken: env("APP_ACCESS_TOKEN"),
-  aiProvider: env("AI_PROVIDER","openai-compatible"),
   aiBaseUrl: env("AI_BASE_URL","https://api.openai.com/v1"),
   aiApiKey: env("AI_API_KEY"),
   aiModel: env("AI_MODEL","gpt-5-mini"),

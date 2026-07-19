@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { defaultCommandRunner, runSetup, SetupFailure, wrapCommandForTerminal } from "../scripts/cli/init.mjs";
+import { defaultCommandRunner, runSetup, SETUP_HELP, SetupFailure, wrapCommandForTerminal } from "../scripts/cli/init.mjs";
 
 const databaseId="11111111-2222-4333-8444-555555555555";
 const appUrl="https://openx-growth.fixture.workers.dev";
@@ -368,4 +368,21 @@ test("repository exposes the guided setup command in package, UI, and durable de
   assert.match(readme,/## Guided setup \(recommended\)/);
   assert.match(readme,/manual reference and recovery path/);
   assert.match(deployment,/## Guided setup/);
+});
+
+test("setup help and README explain operator input, generated files, and every supported environment variable",async()=>{
+  const repositoryRoot=new URL("..",import.meta.url);
+  const readme=await readFile(new URL("README.md",repositoryRoot),"utf8");
+  const envExample=await readFile(new URL(".env.example",repositoryRoot),"utf8");
+  assert.match(SETUP_HELP,/You provide:/);
+  assert.match(SETUP_HELP,/The wizard creates:/);
+  assert.match(SETUP_HELP,/D1 database bound exactly as DB/);
+  assert.match(readme,/bind it exactly as `DB`/);
+  for(const name of [
+    "APP_URL","X_CLIENT_ID","X_CLIENT_SECRET","SESSION_SECRET","APP_ACCESS_TOKEN","CRON_SECRET","OPENX_API_TOKEN",
+    "AI_BASE_URL","AI_API_KEY","AI_MODEL","X_AI_CONTENT_APPROVED","X_AI_REPLIES_APPROVED","ENABLE_EVERGREEN",
+    "SYNC_TTL_SECONDS","MAX_DAILY_X_RESOURCES","MAX_DAILY_X_WRITES","MAX_DAILY_X_READS","OPENX_BASE_URL",
+  ])assert.ok(readme.includes("`"+name+"`"),name);
+  assert.doesNotMatch(envExample,/^AI_PROVIDER=/m);
+  assert.match(readme,/putting an optional value only in local `\.env\.local` does not update an already deployed Worker/i);
 });

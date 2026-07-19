@@ -29,14 +29,30 @@ import {
 } from "./lib.mjs";
 
 const REQUIRED_SECRET_NAMES = Object.freeze(Object.keys(REQUIRED_SECRET_BYTES));
-const HELP = `OpenX Growth guided setup
+export const SETUP_HELP = `OpenX Growth guided setup
 
 Usage:
   npm run setup
   npm run setup -- --help
 
-Runs the eight-step Cloudflare and X setup wizard. The command is resumable and
-never rotates an existing remote secret. It does not automate the X console.
+Prerequisites:
+  - Node.js 22.13 or newer and dependencies installed with npm ci
+  - GNU timeout (macOS: brew install coreutils, then add its gnubin to PATH)
+  - A Cloudflare account and an X OAuth 2.0 application
+
+You provide:
+  - Cloudflare login if Wrangler is not already authenticated
+  - workers.dev or a custom deployment origin
+  - X_CLIENT_ID and, only for confidential clients, X_CLIENT_SECRET
+
+The wizard creates:
+  - a D1 database bound exactly as DB, migrations, and a Worker deployment
+  - gitignored wrangler.jsonc and .env.local files
+  - independent SESSION_SECRET, APP_ACCESS_TOKEN, CRON_SECRET, and OPENX_API_TOKEN values
+
+Secrets are saved only in .env.local with mode 600 and uploaded through Wrangler
+stdin. The command is resumable, never rotates existing remote secrets, and does
+not automate the X Developer Console.
 `;
 
 export class SetupFailure extends Error {
@@ -316,6 +332,9 @@ export async function runSetup(options = {}) {
 
   out("OpenX Growth guided setup");
   out("Secrets are written only to .env.local and sent to Wrangler through stdin.");
+  out("You provide: Cloudflare login if needed, deployment URL choice, X_CLIENT_ID, and optional X_CLIENT_SECRET.");
+  out("Setup creates: D1 binding DB, Worker deployment, wrangler.jsonc, .env.local, and four independent secrets.");
+  out("Press Ctrl+C to stop safely; run `npm run setup` again to resume.");
 
   await runStep(SETUP_STEPS[0], async () => {
     if (!nodeVersionSupported(options.nodeVersion ?? process.version)) throw new SetupFailure("Node.js 22.13 or newer is required.");
@@ -581,7 +600,7 @@ export async function runSetup(options = {}) {
 
 async function main() {
   const args = process.argv.slice(2);
-  if (args.length === 1 && args[0] === "--help") { process.stdout.write(HELP); return; }
+  if (args.length === 1 && args[0] === "--help") { process.stdout.write(SETUP_HELP); return; }
   if (args.length > 0) throw new SetupFailure("Only --help is supported in v1.", { exitCode: 64 });
   await runSetup();
 }
