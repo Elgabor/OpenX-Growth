@@ -53,37 +53,55 @@ OAuth and refresh tokens are AES-GCM encrypted using `SESSION_SECRET` before D1 
 ## Requirements
 
 - Node.js 22.13+
-- An X developer account and application
-- A Cloudflare Worker-compatible deployment with a D1 binding named `DB`
-- X API credits for the endpoints you use
+- A Cloudflare account (the guided installer creates the Worker and D1 database)
+- An X developer account when you are ready to connect X; you can create the X application after deployment
+- X API credits only when you start using live X endpoints
 
-## Guided setup (recommended)
+## First installation (recommended)
 
-After forking and cloning the repository, install the locked dependencies and run the guided setup:
+Use this path for a normal first installation. After forking and cloning the repository, run:
 
 ```bash
 npm ci
 npm run setup
 ```
 
-The eight-step wizard verifies the local prerequisites and Cloudflare login, creates or safely reuses D1, applies migrations, builds and deploys the Worker, generates missing secrets locally, and runs a protected healthcheck. Secret values are saved only to the gitignored `.env.local` with mode `600` and are sent to Wrangler through stdin; existing remote secrets are never rotated automatically.
-
-The X Developer Console step remains manual. The wizard prints the exact OAuth callback URL, required scopes, and the next steps for **Settings → Continue with X**. Re-run `npm run setup` after an interruption to resume from the existing configuration.
-
-You do not need to create `.env.local` or `wrangler.jsonc` before using the wizard. It creates both as local, gitignored files. The wizard asks only for a deployment URL choice, `X_CLIENT_ID`, and the optional `X_CLIENT_SECRET`; it generates the four application secrets itself. It never asks for an X access token.
-
-Cloudflare is the default host and database provider for each self-hosted instance: the Worker runs the application and D1 stores its data. You use the Cloudflare login during installation and deployment. After that, normal configuration happens inside **Settings**; you do not need to open the Cloudflare dashboard to add an OpenRouter key, change AI options, evergreen behavior, cache duration, local limits, or integration tokens.
-
-The numbered sections below remain the manual reference and recovery path. The verified build requires GNU `timeout`. On macOS:
+If setup reports that GNU `timeout` is missing on macOS, install it once and retry:
 
 ```bash
 brew install coreutils
 export PATH="$(brew --prefix coreutils)/libexec/gnubin:$PATH"
 ```
 
+### What to choose during setup
+
+1. **Cloudflare login:** approve the browser authorization and return to the terminal. Cloudflare hosts the app and its D1 database.
+2. **Deployment address:** press Enter to use the recommended `workers.dev` address. Choose `custom` only if you already own and configured a custom domain.
+3. **X Client ID:** paste it if your X application is ready, or press Enter to finish it later in **Settings → X account**.
+4. **X Client Secret:** leave it empty unless X explicitly gave your application a client secret.
+5. Wait for **Setup complete**. If setup stops, fix the reported problem and run `npm run setup` again; completed steps and existing data are preserved.
+
+The installer creates `wrangler.jsonc` and `.env.local`, creates or reuses D1, applies migrations, deploys the Worker, generates four independent application secrets, uploads missing secrets and runs a protected healthcheck. Secrets remain in the gitignored `.env.local` with mode `600`; existing remote secrets are never rotated automatically.
+
+> **Do not copy `.env.example`, generate secrets or run migrations manually when using `npm run setup`.** Those instructions belong only to the advanced recovery path below.
+
+### After “Setup complete”
+
+1. Open the application address printed by the installer.
+2. Sign in with the `APP_ACCESS_TOKEN` saved locally in `.env.local`, then store that token in your password manager. Never commit or share the file.
+3. Open **Settings → X account**. Paste the OAuth Client ID and the optional Client Secret, then save.
+4. Click **Continue with X**, approve the requested permissions and return to OpenX.
+5. Open **Discover** and run the first read-only sync. Create a draft before attempting any optional manual publish test.
+
+After installation, normal configuration happens in **Settings**. OpenRouter/OpenAI, AI approvals, evergreen behavior, cache duration, local limits and integration tokens do not require the Cloudflare dashboard or a redeploy. Only the deployment address and the root encryption secret remain installation-owned.
+
 Run `npm run setup -- --help` to see prerequisites and exactly what the wizard creates before starting.
 
-## 1. Fork and install
+## Manual installation and recovery (advanced)
+
+Use the sections below only when you intentionally are not using the guided installer or need to repair one of its steps. If the wizard finished successfully, skip directly to [Run locally](#5-run-locally), [Scheduler](#6-scheduler), or the feature documentation you need.
+
+### 1. Fork and install
 
 Fork this repository, then:
 
@@ -105,7 +123,7 @@ openssl rand -base64 32  # APP_ACCESS_TOKEN (required before configuring X)
 
 Never reuse these values and never commit `.env.local`.
 
-## 2. Create the X application
+### 2. Create the X application
 
 1. Open the [X Developer Console](https://console.x.com/).
 2. Create a dedicated application for your OpenX fork.
@@ -127,7 +145,7 @@ OpenX requests only:
 tweet.read tweet.write users.read offline.access
 ```
 
-## 3. Configure environment variables
+### 3. Configure environment variables
 
 See [.env.example](.env.example). The guided setup creates `.env.local`, detects `APP_URL`, generates the four independent application secrets, and uploads the bootstrap values to Cloudflare. After the first protected sign-in, operational configuration is managed from the application Settings page and stored encrypted in D1. Environment variables remain fallback defaults and a manual recovery path.
 
@@ -158,7 +176,7 @@ The wizard establishes a protected installation. From then on use the clearly se
 
 Do not prefix secret variables with `NEXT_PUBLIC_`.
 
-## 4. Database
+### 4. Database
 
 Create a D1 database and bind it exactly as `DB` (uppercase). Values such as `openx_growth` are database names or custom bindings and will not work with the included `npm run db:migrate:*` scripts. Apply the migrations in `drizzle/` using your hosting workflow. With Wrangler:
 

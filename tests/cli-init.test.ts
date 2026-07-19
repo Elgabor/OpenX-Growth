@@ -285,7 +285,7 @@ test("X_CLIENT_ID upload failure resumes from the saved local value without a ro
   const fake=createRunner({overrides:{
     "npx wrangler secret put X_CLIENT_ID --config wrangler.jsonc":()=>({code:1,stderr:"temporary upload failure"}),
   }});
-  const firstPrompt=createPrompt({"X_CLIENT_ID —":"fixture-public-client-id"});
+  const firstPrompt=createPrompt({"X_CLIENT_ID (optional now":"fixture-public-client-id"});
   await expectFailure({root,runner:fake.runner,prompt:firstPrompt.prompt,httpRunner:healthyConfiguredHttp,randomBytes:(bytes:number)=>Buffer.alloc(bytes,3),nodeVersion:"v22.13.0"},/Could not upload X_CLIENT_ID/);
   assert.match(await readFile(join(root,".env.local"),"utf8"),/X_CLIENT_ID=fixture-public-client-id/);
   assert.equal(fake.state.remoteSecrets.has("X_CLIENT_ID"),false);
@@ -363,11 +363,22 @@ test("repository exposes the guided setup command in package, UI, and durable de
   const page=await readFile(new URL("app/page.tsx",repositoryRoot),"utf8");
   const readme=await readFile(new URL("README.md",repositoryRoot),"utf8");
   const deployment=await readFile(new URL("docs/DEPLOYMENT.md",repositoryRoot),"utf8");
+  const wiki=await readFile(new URL("docs/wiki/Home.md",repositoryRoot),"utf8");
   assert.equal(packageJson.scripts.setup,"node scripts/cli/init.mjs");
-  assert.match(page,/guided Cloudflare deployment, run <code>npm run setup<\/code>/);
-  assert.match(readme,/## Guided setup \(recommended\)/);
-  assert.match(readme,/manual reference and recovery path/);
-  assert.match(deployment,/## Guided setup/);
+  const setupGuide=page.slice(page.indexOf("function SetupGuide"),page.indexOf("function WorkspaceStatePanel"));
+  assert.match(setupGuide,/Run the two commands/);
+  assert.match(setupGuide,/<code>npm ci<\/code>, then <code>npm run setup<\/code>/);
+  assert.doesNotMatch(setupGuide,/openssl rand|db:migrate:remote|copy <code>\.env\.example/);
+  assert.match(readme,/## First installation \(recommended\)/);
+  assert.match(readme,/Do not copy `\.env\.example`, generate secrets or run migrations manually/);
+  assert.match(readme,/## Manual installation and recovery \(advanced\)/);
+  assert.match(deployment,/## Recommended first installation/);
+  assert.match(deployment,/Stop here when the guided installer succeeds/);
+  assert.match(deployment,/## Manual installation or recovery \(advanced\)/);
+  assert.match(wiki,/## First installation/);
+  assert.match(wiki,/npm run setup/);
+  assert.match(wiki,/Settings → X account/);
+  assert.doesNotMatch(wiki,/Settings → Continue with X/);
 });
 
 test("setup help and README explain operator input, generated files, and every supported environment variable",async()=>{
@@ -377,6 +388,8 @@ test("setup help and README explain operator input, generated files, and every s
   assert.match(SETUP_HELP,/You provide:/);
   assert.match(SETUP_HELP,/The wizard creates:/);
   assert.match(SETUP_HELP,/D1 database bound exactly as DB/);
+  assert.match(SETUP_HELP,/press Enter to accept workers\.dev/);
+  assert.match(SETUP_HELP,/defer X credentials/);
   assert.match(readme,/bind it exactly as `DB`/);
   for(const name of [
     "APP_URL","X_CLIENT_ID","X_CLIENT_SECRET","SESSION_SECRET","APP_ACCESS_TOKEN","CRON_SECRET","OPENX_API_TOKEN",

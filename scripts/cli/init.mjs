@@ -39,12 +39,14 @@ Usage:
 Prerequisites:
   - Node.js 22.13 or newer and dependencies installed with npm ci
   - GNU timeout (macOS: brew install coreutils, then add its gnubin to PATH)
-  - A Cloudflare account and an X OAuth 2.0 application
+  - A Cloudflare account
+  - An X developer account when you are ready to connect X (the app can be created later)
 
 You provide:
   - Cloudflare login if Wrangler is not already authenticated
-  - workers.dev or a custom deployment origin
-  - X_CLIENT_ID and, only for confidential clients, X_CLIENT_SECRET
+  - workers.dev (recommended) or a custom deployment origin
+  - X_CLIENT_ID now or later in Settings -> X account
+  - X_CLIENT_SECRET only when X explicitly provides one
 
 The wizard creates:
   - a D1 database bound exactly as DB, migrations, and a Worker deployment
@@ -54,6 +56,11 @@ The wizard creates:
 Secrets are saved only in .env.local with mode 600 and uploaded through Wrangler
 stdin. The command is resumable, never rotates existing remote secrets, and does
 not automate the X Developer Console.
+
+Recommended first run:
+  - approve the Cloudflare browser login
+  - press Enter to accept workers.dev
+  - press Enter to defer X credentials if your X app is not ready
 `;
 
 export class SetupFailure extends Error {
@@ -333,7 +340,7 @@ export async function runSetup(options = {}) {
 
   out("OpenX Growth guided setup");
   out("Secrets are written only to .env.local and sent to Wrangler through stdin.");
-  out("You provide: Cloudflare login if needed, deployment URL choice, X_CLIENT_ID, and optional X_CLIENT_SECRET.");
+  out("Recommended first run: approve Cloudflare, press Enter for workers.dev, and defer X credentials if your X app is not ready.");
   out("Setup creates: D1 binding DB, Worker deployment, wrangler.jsonc, .env.local, and four independent secrets.");
   out("Press Ctrl+C to stop safely; run `npm run setup` again to resume.");
 
@@ -433,7 +440,7 @@ export async function runSetup(options = {}) {
     }
     let defaultWorkersDomain = !appUrl;
     if (!appUrl) {
-      const kind = (await ask("Use the default workers.dev URL or a custom domain? [workers.dev/custom]: ")).toLowerCase();
+      const kind = (await ask("Deployment address [workers.dev/custom] (press Enter for workers.dev): ")).toLowerCase();
       if (kind && !["workers.dev", "workers", "default", "custom"].includes(kind)) throw new SetupFailure("Choose `workers.dev` or `custom`.");
       defaultWorkersDomain = kind !== "custom";
       if (!defaultWorkersDomain) {
@@ -487,7 +494,7 @@ export async function runSetup(options = {}) {
 
     let xClientId = localValues.X_CLIENT_ID ?? "";
     if (!remoteSecrets.has("X_CLIENT_ID")) {
-      if (!xClientId) xClientId = await ask("X_CLIENT_ID — paste now, or press Enter to add it in the X console step: ");
+      if (!xClientId) xClientId = await ask("X_CLIENT_ID (optional now — press Enter to configure it in the next step or later in Settings → X account): ");
       if (xClientId) {
         if (!localValues.X_CLIENT_ID) await saveEnv({ X_CLIENT_ID: xClientId });
         const uploaded = await run("npx", ["wrangler", "secret", "put", "X_CLIENT_ID", "--config", "wrangler.jsonc"], { input: `${xClientId}\n` });
@@ -525,7 +532,8 @@ export async function runSetup(options = {}) {
     out(`Callback URL: ${callback}`);
     out("The callback URL must match character-for-character.");
     if (!xConfigured) {
-      const xClientId = await ask("Paste X_CLIENT_ID now, or press Enter to do it later from the in-app guide: ");
+      out("If your X app is not ready, press Enter. Setup will finish and you can add it later in Settings → X account.");
+      const xClientId = await ask("Paste X_CLIENT_ID now, or press Enter to configure it later in Settings → X account: ");
       if (xClientId) {
         await saveEnv({ X_CLIENT_ID: xClientId });
         const uploaded = await run("npx", ["wrangler", "secret", "put", "X_CLIENT_ID", "--config", "wrangler.jsonc"], { input: `${xClientId}\n` });
@@ -594,7 +602,8 @@ export async function runSetup(options = {}) {
   for (const summary of summaries) out(`✔ [${summary.number}/8] ${summary.label} — ${summary.status} (${summary.durationMs}ms)`);
   out(`Total time: ${duration(startedAt, now)}`);
   out(`Next: open ${appUrl} and sign in with APP_ACCESS_TOKEN from .env.local (store it in a password manager).`);
-  out("Then open Settings → Continue with X, and finish Quick checklist: Content → create draft → publish test.");
+  out("Then open Settings → X account, save the OAuth credentials, and click Continue with X.");
+  out("Finally, open Discover for a read-only sync and create a draft before any optional manual publish test.");
   out("Optional scheduler: configure OPENX_BASE_URL and OPENX_CRON_SECRET as documented in README section 6.");
   return { appUrl, xConfigured, summaries, totalDurationMs: Math.max(0, now() - startedAt) };
 }

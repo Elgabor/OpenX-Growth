@@ -47,7 +47,7 @@ const localBindingConfig = {
     : [],
 };
 
-const localWorkerConfig = existsSync(new URL("./wrangler.jsonc", import.meta.url))
+const localWorkerConfig = existsSync(new URL("./wrangler.jsonc", import.meta.url)) || e2eConfigPath
   ? localBindingConfig
   : {
       ...localBindingConfig,
